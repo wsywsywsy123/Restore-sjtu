@@ -1,0 +1,10 @@
+torch==2.3.1
+torchvision==0.18.1
+opencv-python==4.9.0.80
+numpy==1.26.4
+onnx==1.16.1
+
+# Collector extras (install separately if needed)
+duckduckgo-search==7.4.2
+aiohttp==3.10.11
+
