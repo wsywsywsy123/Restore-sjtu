@@ -587,6 +587,23 @@ show_bio = st.sidebar.checkbox("显示：生物附着", True)
 show_labels = st.sidebar.checkbox("在图上标注类别简写", True)
 label_lang = st.sidebar.selectbox("标签样式", ["简写(EN)", "中文"], index=0)
 
+# 实尺标定（像素-毫米换算）
+st.sidebar.markdown("### 实尺标定（单位转换）")
+if "ppmm" not in st.session_state:
+    st.session_state["ppmm"] = None  # pixels per millimeter
+scale_mode = st.sidebar.selectbox("标定方式", ["未标定", "直接输入像素/毫米", "参考物标定（输入像素长度与实长mm）"], index=0)
+ppmm_direct = None
+if scale_mode == "直接输入像素/毫米":
+    ppmm_direct = st.sidebar.number_input("像素/毫米 (pixels per mm)", min_value=0.0, value=float(st.session_state["ppmm"]) if st.session_state["ppmm"] else 0.0, step=0.01)
+    if ppmm_direct > 0:
+        st.session_state["ppmm"] = ppmm_direct
+elif scale_mode == "参考物标定（输入像素长度与实长mm）":
+    ref_px = st.sidebar.number_input("参考物在图中的像素长度", min_value=0.0, value=0.0, step=1.0)
+    ref_mm = st.sidebar.number_input("参考物实际长度（mm）", min_value=0.0, value=0.0, step=0.1)
+    if ref_px > 0 and ref_mm > 0:
+        st.session_state["ppmm"] = ref_px / ref_mm
+st.sidebar.caption(f"当前标定：{'未标定' if not st.session_state['ppmm'] else f'{st.session_state["ppmm"]:.3f} 像素/毫米'}")
+
 # Upload (支持历史对比：允许上传旧图像)
 st.markdown("#### 1) 上传图像（可上传 1-2 张用于时间对比）")
 uploaded = st.file_uploader("上传当前图像（必填）", type=['jpg','jpeg','png'])
@@ -824,12 +841,23 @@ if uploaded is not None and analyze_btn:
                     orient_deg = float(np.degrees(theta)) % 180
                 else:
                     orient_deg = float('nan')
+                # 估计长度与平均宽度：细长目标用骨架近似长度，否则用等效直径
+                comp_mask = (labels == i).astype(np.uint8)
+                length_px = float(np.sqrt((w_**2 + h_**2)))
+                mean_width_px = float(area / max(1.0, length_px))
+                # 若已标定，转换到毫米
+                ppmm = st.session_state.get('ppmm')
+                length_mm = (length_px / ppmm) if ppmm else None
+                mean_width_mm = (mean_width_px / ppmm) if ppmm else None
                 rows.append({
                     'area_px': area,
                     'bbox_w': w_,
                     'bbox_h': h_,
                     'elongation': round(elong,3),
-                    'orientation_deg': round(orient_deg,2)
+                    'orientation_deg': round(orient_deg,2),
+                    'length_px': round(length_px,2),
+                    'mean_width_px': round(mean_width_px,2),
+                    **({'length_mm': round(length_mm,2), 'mean_width_mm': round(mean_width_mm,2)} if ppmm else {})
                 })
             return rows
 
@@ -850,7 +878,10 @@ if uploaded is not None and analyze_btn:
                     st.write("无显著连通域（受最小面积阈值影响）")
                 else:
                     df = _pd_alias.DataFrame(rows)
-                    st.write(f"连通域数量：{len(df)}，面积中位数：{df['area_px'].median():.0f} px，细长比P95：{df['elongation'].quantile(0.95):.2f}")
+                    stats_msg = f"连通域数量：{len(df)}，面积中位数：{df['area_px'].median():.0f} px，细长比P95：{df['elongation'].quantile(0.95):.2f}"
+                    if 'mean_width_mm' in df.columns:
+                        stats_msg += f"，平均宽度中位数：{df['mean_width_mm'].median():.2f} mm"
+                    st.write(stats_msg)
                     st.dataframe(df.sort_values('area_px', ascending=False).head(50), use_container_width=True)
                     csv = df.to_csv(index=False).encode('utf-8')
                     st.download_button(label=f"下载{cat}指标CSV", data=csv, file_name=f"metrics_{cat}.csv", mime="text/csv")
