@@ -35,6 +35,21 @@ if "proc" not in st.session_state:
     st.session_state["proc"] = None
 
 # ---------------------------
+# Caching helpers
+# ---------------------------
+@st.cache_resource(show_spinner=False)
+def get_onnx_session_cached(model_path: str, providers):
+    return ort.InferenceSession(model_path, providers=providers)
+
+@st.cache_data(show_spinner=False)
+def _resize_bgr_cached(image_bgr_bytes: bytes, w: int, h: int):
+    arr = np.frombuffer(image_bgr_bytes, dtype=np.uint8)
+    img = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+    if img is None:
+        raise ValueError("无法从缓存字节解码图像")
+    return cv2.resize(img, (w, h), interpolation=cv2.INTER_AREA)
+
+# ---------------------------
 # Helpers: render inpainting UI
 # ---------------------------
 def render_inpainting_ui(img_rgb, mask_crack, mask_peel, mask_disc, mask_stain, mask_salt, mask_bio, default_open=True, key_suffix=""):
@@ -543,8 +558,8 @@ def run_segmentation_model(image_bgr, model_path, input_size=512, class_ids=None
     if class_ids is None:
         class_ids = {'bg': 0, 'crack': 1, 'peel': 2, 'disc': 3, 'stain': 4, 'salt': 5, 'bio': 6}
 
-    # Prepare session
-    session = ort.InferenceSession(model_path, providers=providers or ["CPUExecutionProvider"])
+    # Prepare session (cached)
+    session = get_onnx_session_cached(model_path, providers=providers or ["CPUExecutionProvider"])
 
     # Preprocess: BGR->RGB, resize square, normalize to [0,1]
     h0, w0 = image_bgr.shape[:2]
@@ -628,6 +643,10 @@ if auto_material:
 use_deep = st.sidebar.checkbox("使用深度分割模型（ONNX）", value=False)
 model_path = None
 model_input_size = 512
+# 性能/速度设置
+st.sidebar.markdown("### 性能/速度设置")
+max_dim_setting = st.sidebar.slider("最大处理分辨率（像素）", 512, 2048, 1280, 64)
+icp_threshold = st.sidebar.slider("3D ICP 距离阈值 (m)", 0.002, 0.05, 0.02, 0.002)
 class_id_bg = 0
 class_id_crack = 1
 class_id_peel = 2
@@ -708,7 +727,7 @@ if uploaded is not None and analyze_btn:
     if img is None:
         st.error("无法读取图像，请确认格式正确。")
     else:
-        img_proc, scale = preprocess_image(img.copy())
+        img_proc, scale = preprocess_image(img.copy(), target_max_dim=int(max_dim_setting))
         img_rgb = cv2.cvtColor(img_proc, cv2.COLOR_BGR2RGB)
         st.subheader("原始图像（已缩放以便处理）")
         # Auto material detection
@@ -752,7 +771,8 @@ if uploaded is not None and analyze_btn:
                 )
                 st.success("深度分割已启用：结果将替换传统CV掩膜。")
             except Exception as e:
-                st.error(f"深度模型推理失败：{e}")
+                st.exception(e)
+                st.error("深度模型推理失败，请检查模型路径、类别ID与输入尺寸是否匹配。")
                 deep_masks = None
 
         # Baseline CV detections
@@ -1135,8 +1155,24 @@ with tabs[1]:
                 c1 = p1.get_center(); c2 = p2.get_center()
                 p2_t = p2.translate(c1 - c2, relative=False)
                 # 精配准：ICP
+                with st.spinner("ICP精配准中…"):
+                # 先全局配准尝试（RANSAC）再ICP（若可用）
+                try:
+                    voxel = max(float(icp_threshold)*2.0, 0.01)
+                    p1_down = p1.voxel_down_sample(voxel)
+                    p2_down = p2_t.voxel_down_sample(voxel)
+                    reg_ransac = o3d.pipelines.registration.registration_ransac_based_on_correspondence(
+                        p2_down, p1_down, o3d.utility.Vector2iVector(np.array([[0,0]], dtype=np.int32)),
+                        max_correspondence_distance=float(icp_threshold)*3.0,
+                        estimation_method=o3d.pipelines.registration.TransformationEstimationPointToPoint(),
+                        ransac_n=3,
+                        criteria=o3d.pipelines.registration.RANSACConvergenceCriteria(1000, 500)
+                    )
+                    init = reg_ransac.transformation if hasattr(reg_ransac, 'transformation') else np.eye(4)
+                except Exception:
+                    init = np.eye(4)
                 reg = o3d.pipelines.registration.registration_icp(
-                    p2_t, p1, 0.02, np.eye(4),
+                    p2_t, p1, float(icp_threshold), init,
                     o3d.pipelines.registration.TransformationEstimationPointToPoint()
                 )
                 p2_aligned = p2_t.transform(reg.transformation)
@@ -1161,7 +1197,8 @@ with tabs[1]:
                     csv = ("dist_mm\n" + "\n".join(f"{v*1000:.4f}" for v in dists)).encode("utf-8")
                     st.download_button("下载距离分布CSV", data=csv, file_name="distances_mm.csv", mime="text/csv")
             except Exception as e:
-                st.error(f"三维处理失败：{e}")
+                st.exception(e)
+                st.error("三维处理失败，请确认文件格式并适当调小点数或阈值。")
 
 # footer
 st.markdown(f"<div style='text-align:center;color:#666;margin-top:32px;'>© {datetime.now().year} 上海交大文物修复团队 | AI+文物保护研究</div>", unsafe_allow_html=True)
