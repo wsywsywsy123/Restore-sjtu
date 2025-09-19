@@ -1156,28 +1156,28 @@ with tabs[1]:
                 p2_t = p2.translate(c1 - c2, relative=False)
                 # 精配准：ICP
                 with st.spinner("ICP精配准中…"):
-                # 先全局配准尝试（RANSAC）再ICP（若可用）
-                try:
-                    voxel = max(float(icp_threshold)*2.0, 0.01)
-                    p1_down = p1.voxel_down_sample(voxel)
-                    p2_down = p2_t.voxel_down_sample(voxel)
-                    reg_ransac = o3d.pipelines.registration.registration_ransac_based_on_correspondence(
-                        p2_down, p1_down, o3d.utility.Vector2iVector(np.array([[0,0]], dtype=np.int32)),
-                        max_correspondence_distance=float(icp_threshold)*3.0,
-                        estimation_method=o3d.pipelines.registration.TransformationEstimationPointToPoint(),
-                        ransac_n=3,
-                        criteria=o3d.pipelines.registration.RANSACConvergenceCriteria(1000, 500)
+                    # 先全局配准尝试（RANSAC）再ICP（若可用）
+                    try:
+                        voxel = max(float(icp_threshold)*2.0, 0.01)
+                        p1_down = p1.voxel_down_sample(voxel)
+                        p2_down = p2_t.voxel_down_sample(voxel)
+                        reg_ransac = o3d.pipelines.registration.registration_ransac_based_on_correspondence(
+                            p2_down, p1_down, o3d.utility.Vector2iVector(np.array([[0,0]], dtype=np.int32)),
+                            max_correspondence_distance=float(icp_threshold)*3.0,
+                            estimation_method=o3d.pipelines.registration.TransformationEstimationPointToPoint(),
+                            ransac_n=3,
+                            criteria=o3d.pipelines.registration.RANSACConvergenceCriteria(1000, 500)
+                        )
+                        init = reg_ransac.transformation if hasattr(reg_ransac, 'transformation') else np.eye(4)
+                    except Exception:
+                        init = np.eye(4)
+                    reg = o3d.pipelines.registration.registration_icp(
+                        p2_t, p1, float(icp_threshold), init,
+                        o3d.pipelines.registration.TransformationEstimationPointToPoint()
                     )
-                    init = reg_ransac.transformation if hasattr(reg_ransac, 'transformation') else np.eye(4)
-                except Exception:
-                    init = np.eye(4)
-                reg = o3d.pipelines.registration.registration_icp(
-                    p2_t, p1, float(icp_threshold), init,
-                    o3d.pipelines.registration.TransformationEstimationPointToPoint()
-                )
-                p2_aligned = p2_t.transform(reg.transformation)
-                # 计算最近点距离
-                pcd_tree = o3d.geometry.KDTreeFlann(p1)
+                    p2_aligned = p2_t.transform(reg.transformation)
+                    # 计算最近点距离
+                    pcd_tree = o3d.geometry.KDTreeFlann(p1)
                 dists = []
                 pts = np.asarray(p2_aligned.points)
                 for pt in pts:
