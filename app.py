@@ -11,10 +11,22 @@ from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 import base64
+import sys
 try:
     import onnxruntime as ort  # 深度分割推理
 except Exception:
     ort = None
+
+# Optional deps for 3D
+try:
+    import open3d as o3d  # type: ignore
+except Exception:
+    o3d = None
+try:
+    import plotly.express as px
+    import pandas as pd  # already imported above but for safety when 3D used
+except Exception:
+    px = None
 
 st.set_page_config("石窟寺壁画病害AI识别工具（升级版）", layout="wide", page_icon="🏛️")
 
@@ -63,6 +75,74 @@ def render_inpainting_ui(img_rgb, mask_crack, mask_peel, mask_disc, mask_stain, 
             st.image(restored_rgb, caption="复原结果（基于所选掩膜）", width='stretch')
             _buf = BytesIO(); Image.fromarray(restored_rgb).save(_buf, format="PNG"); _buf.seek(0)
             st.download_button("下载复原图（PNG）", data=_buf.getvalue(), file_name="restored.png", mime="image/png")
+
+# ---------------------------
+# Helpers: color restoration utilities
+# ---------------------------
+def _to_bgr(img_rgb):
+    return cv2.cvtColor(img_rgb, cv2.COLOR_RGB2BGR)
+
+def _to_rgb(img_bgr):
+    return cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+
+def gray_world_white_balance(img_bgr):
+    img = img_bgr.astype(np.float32)
+    mean_b, mean_g, mean_r = [np.mean(img[:,:,c]) for c in range(3)]
+    mean_gray = (mean_b + mean_g + mean_r) / 3.0
+    gain_b = mean_gray / (mean_b + 1e-6)
+    gain_g = mean_gray / (mean_g + 1e-6)
+    gain_r = mean_gray / (mean_r + 1e-6)
+    img[:,:,0] = np.clip(img[:,:,0] * gain_b, 0, 255)
+    img[:,:,1] = np.clip(img[:,:,1] * gain_g, 0, 255)
+    img[:,:,2] = np.clip(img[:,:,2] * gain_r, 0, 255)
+    return img.astype(np.uint8)
+
+def clahe_on_l_channel(img_bgr, clip_limit=2.0, tile_grid_size=8):
+    lab = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2LAB)
+    l, a, b = cv2.split(lab)
+    clahe = cv2.createCLAHE(clipLimit=float(clip_limit), tileGridSize=(int(tile_grid_size), int(tile_grid_size)))
+    l2 = clahe.apply(l)
+    lab2 = cv2.merge([l2, a, b])
+    return cv2.cvtColor(lab2, cv2.COLOR_LAB2BGR)
+
+def reinhard_color_transfer(src_bgr, ref_bgr):
+    # Convert to LAB and match mean/std
+    src_lab = cv2.cvtColor(src_bgr, cv2.COLOR_BGR2LAB).astype(np.float32)
+    ref_lab = cv2.cvtColor(ref_bgr, cv2.COLOR_BGR2LAB).astype(np.float32)
+    for c in range(3):
+        s_mean, s_std = src_lab[:,:,c].mean(), src_lab[:,:,c].std() + 1e-6
+        r_mean, r_std = ref_lab[:,:,c].mean(), ref_lab[:,:,c].std() + 1e-6
+        src_lab[:,:,c] = (src_lab[:,:,c] - s_mean) * (r_std / s_std) + r_mean
+    src_lab = np.clip(src_lab, 0, 255).astype(np.uint8)
+    return cv2.cvtColor(src_lab, cv2.COLOR_LAB2BGR)
+
+def render_color_restore_ui(img_rgb, default_open=False, key_suffix="color"):
+    st.markdown("### 🎨 色彩/褪色复原（基础版）")
+    with st.expander("展开/收起", expanded=default_open):
+        col1, col2 = st.columns(2)
+        with col1:
+            use_wb = st.checkbox("灰度世界白平衡", value=True, key=f"wb_{key_suffix}")
+            clahe_clip = st.slider("CLAHE 对比度 (clip)", 0.0, 4.0, 2.0, 0.1, key=f"clip_{key_suffix}")
+            clahe_tile = st.slider("CLAHE 网格", 4, 16, 8, 1, key=f"tile_{key_suffix}")
+        with col2:
+            ref_file = st.file_uploader("参考图像（可选，用于风格/色彩转移）", type=["jpg","jpeg","png"], key=f"ref_{key_suffix}")
+            do_transfer = st.checkbox("启用参考色彩转移（Reinhard）", value=False, key=f"tr_{key_suffix}")
+        run_color = st.button("生成色彩复原图", key=f"btn_{key_suffix}")
+        if run_color:
+            bgr = _to_bgr(img_rgb)
+            out = bgr
+            if use_wb:
+                out = gray_world_white_balance(out)
+            out = clahe_on_l_channel(out, clip_limit=clahe_clip, tile_grid_size=clahe_tile)
+            if do_transfer and ref_file is not None:
+                ref_bytes = np.asarray(bytearray(ref_file.read()), dtype=np.uint8)
+                ref_bgr = cv2.imdecode(ref_bytes, cv2.IMREAD_COLOR)
+                if ref_bgr is not None:
+                    out = reinhard_color_transfer(out, ref_bgr)
+            rgb = _to_rgb(out)
+            st.image(rgb, caption="色彩复原结果", width='stretch')
+            buf = BytesIO(); Image.fromarray(rgb).save(buf, format="PNG"); buf.seek(0)
+            st.download_button("下载复原图（PNG）", data=buf.getvalue(), file_name="restored_color.png", mime="image/png")
 
 # ---------------------------
 # Utility helpers
@@ -587,8 +667,32 @@ show_bio = st.sidebar.checkbox("显示：生物附着", True)
 show_labels = st.sidebar.checkbox("在图上标注类别简写", True)
 label_lang = st.sidebar.selectbox("标签样式", ["简写(EN)", "中文"], index=0)
 
+# 实尺标定（像素-毫米换算）
+st.sidebar.markdown("### 实尺标定（单位转换）")
+if "ppmm" not in st.session_state:
+    st.session_state["ppmm"] = None  # pixels per millimeter
+scale_mode = st.sidebar.selectbox("标定方式", ["未标定", "直接输入像素/毫米", "参考物标定（输入像素长度与实长mm）"], index=0)
+ppmm_direct = None
+if scale_mode == "直接输入像素/毫米":
+    ppmm_direct = st.sidebar.number_input("像素/毫米 (pixels per mm)", min_value=0.0, value=float(st.session_state["ppmm"]) if st.session_state["ppmm"] else 0.0, step=0.01)
+    if ppmm_direct > 0:
+        st.session_state["ppmm"] = ppmm_direct
+elif scale_mode == "参考物标定（输入像素长度与实长mm）":
+    ref_px = st.sidebar.number_input("参考物在图中的像素长度", min_value=0.0, value=0.0, step=1.0)
+    ref_mm = st.sidebar.number_input("参考物实际长度（mm）", min_value=0.0, value=0.0, step=0.1)
+    if ref_px > 0 and ref_mm > 0:
+        st.session_state["ppmm"] = ref_px / ref_mm
+_ppmm_val = st.session_state["ppmm"]
+if _ppmm_val:
+    st.sidebar.caption(f"当前标定：{_ppmm_val:.3f} 像素/毫米")
+else:
+    st.sidebar.caption("当前标定：未标定")
+
 # Upload (支持历史对比：允许上传旧图像)
-st.markdown("#### 1) 上传图像（可上传 1-2 张用于时间对比）")
+tabs = st.tabs(["二维壁画诊断", "三维石窟监测（基础版）"])
+
+with tabs[0]:
+    st.markdown("#### 1) 上传图像（可上传 1-2 张用于时间对比）")
 uploaded = st.file_uploader("上传当前图像（必填）", type=['jpg','jpeg','png'])
 uploaded_prev = st.file_uploader("上传历史图像（可选，用于对比），若有则为同一壁画的早期照片", type=['jpg','jpeg','png'])
 
@@ -747,6 +851,8 @@ if uploaded is not None and analyze_btn:
         </div>
         """
         st.markdown(legend_html, unsafe_allow_html=True)
+        # 色彩复原（基础）
+        render_color_restore_ui(img_rgb, default_open=False, key_suffix="color1")
 
         # ---------------------
         # Quantification & scoring
@@ -824,12 +930,23 @@ if uploaded is not None and analyze_btn:
                     orient_deg = float(np.degrees(theta)) % 180
                 else:
                     orient_deg = float('nan')
+                # 估计长度与平均宽度：细长目标用骨架近似长度，否则用等效直径
+                comp_mask = (labels == i).astype(np.uint8)
+                length_px = float(np.sqrt((w_**2 + h_**2)))
+                mean_width_px = float(area / max(1.0, length_px))
+                # 若已标定，转换到毫米
+                ppmm = st.session_state.get('ppmm')
+                length_mm = (length_px / ppmm) if ppmm else None
+                mean_width_mm = (mean_width_px / ppmm) if ppmm else None
                 rows.append({
                     'area_px': area,
                     'bbox_w': w_,
                     'bbox_h': h_,
                     'elongation': round(elong,3),
-                    'orientation_deg': round(orient_deg,2)
+                    'orientation_deg': round(orient_deg,2),
+                    'length_px': round(length_px,2),
+                    'mean_width_px': round(mean_width_px,2),
+                    **({'length_mm': round(length_mm,2), 'mean_width_mm': round(mean_width_mm,2)} if ppmm else {})
                 })
             return rows
 
@@ -850,7 +967,10 @@ if uploaded is not None and analyze_btn:
                     st.write("无显著连通域（受最小面积阈值影响）")
                 else:
                     df = _pd_alias.DataFrame(rows)
-                    st.write(f"连通域数量：{len(df)}，面积中位数：{df['area_px'].median():.0f} px，细长比P95：{df['elongation'].quantile(0.95):.2f}")
+                    stats_msg = f"连通域数量：{len(df)}，面积中位数：{df['area_px'].median():.0f} px，细长比P95：{df['elongation'].quantile(0.95):.2f}"
+                    if 'mean_width_mm' in df.columns:
+                        stats_msg += f"，平均宽度中位数：{df['mean_width_mm'].median():.2f} mm"
+                    st.write(stats_msg)
                     st.dataframe(df.sort_values('area_px', ascending=False).head(50), use_container_width=True)
                     csv = df.to_csv(index=False).encode('utf-8')
                     st.download_button(label=f"下载{cat}指标CSV", data=csv, file_name=f"metrics_{cat}.csv", mime="text/csv")
@@ -976,6 +1096,73 @@ if uploaded is not None and analyze_btn:
             'shape': gray.shape
         }
 
+with tabs[1]:
+    st.markdown("#### 上传两期三维数据（点云/网格）")
+    f_epoch1 = st.file_uploader("上传一期（参考）PLY/PCD/OBJ/GLB", type=["ply","pcd","obj","glb"], key="pc1")
+    f_epoch2 = st.file_uploader("上传二期（对比）PLY/PCD/OBJ/GLB", type=["ply","pcd","obj","glb"], key="pc2")
+    max_points = st.number_input("可视化/计算最大点数（下采样）", min_value=10000, value=200000, step=10000)
+    run_icp = st.button("执行配准与距离计算（基础）")
+    if run_icp:
+        if o3d is None:
+            st.error("缺少 open3d，请先安装：pip install open3d")
+        elif f_epoch1 is None or f_epoch2 is None:
+            st.error("请上传两期三维数据文件。")
+        else:
+            try:
+                def load_geom(file):
+                    import tempfile
+                    suffix = "." + file.name.split(".")[-1].lower()
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                        tmp.write(file.read()); path = tmp.name
+                    mesh = None
+                    if suffix in (".obj", ".glb"):
+                        mesh = o3d.io.read_triangle_mesh(path)
+                        if not mesh.has_vertices():
+                            raise RuntimeError("无法读取网格")
+                        pcd = mesh.sample_points_uniformly(number_of_points=int(max_points))
+                    else:
+                        pcd = o3d.io.read_point_cloud(path)
+                        if len(pcd.points) == 0:
+                            raise RuntimeError("无法读取点云")
+                    if len(pcd.points) > max_points:
+                        pcd = pcd.random_down_sample(float(max_points)/float(len(pcd.points)))
+                    pcd.estimate_normals()
+                    return pcd
+
+                p1 = load_geom(f_epoch1)
+                p2 = load_geom(f_epoch2)
+                # 粗配准：基于质心对齐
+                c1 = p1.get_center(); c2 = p2.get_center()
+                p2_t = p2.translate(c1 - c2, relative=False)
+                # 精配准：ICP
+                reg = o3d.pipelines.registration.registration_icp(
+                    p2_t, p1, 0.02, np.eye(4),
+                    o3d.pipelines.registration.TransformationEstimationPointToPoint()
+                )
+                p2_aligned = p2_t.transform(reg.transformation)
+                # 计算最近点距离
+                pcd_tree = o3d.geometry.KDTreeFlann(p1)
+                dists = []
+                pts = np.asarray(p2_aligned.points)
+                for pt in pts:
+                    [k, idx, _] = pcd_tree.search_knn_vector_3d(pt, 1)
+                    if k > 0:
+                        nn = np.asarray(p1.points)[idx[0]]
+                        dists.append(float(np.linalg.norm(pt - nn)))
+                if len(dists) == 0:
+                    st.warning("距离计算为空。")
+                else:
+                    dists = np.array(dists)
+                    st.write(f"点数：{len(dists)}，均值：{dists.mean()*1000:.2f} mm，P95：{np.quantile(dists,0.95)*1000:.2f} mm，最大：{dists.max()*1000:.2f} mm")
+                    if px is not None:
+                        df = pd.DataFrame({"dist_mm": dists*1000.0})
+                        st.plotly_chart(px.histogram(df, x="dist_mm", nbins=50, title="距离分布(mm)"), use_container_width=True)
+                    # 导出CSV
+                    csv = ("dist_mm\n" + "\n".join(f"{v*1000:.4f}" for v in dists)).encode("utf-8")
+                    st.download_button("下载距离分布CSV", data=csv, file_name="distances_mm.csv", mime="text/csv")
+            except Exception as e:
+                st.error(f"三维处理失败：{e}")
+
 # footer
 st.markdown(f"<div style='text-align:center;color:#666;margin-top:32px;'>© {datetime.now().year} 上海交大文物修复团队 | AI+文物保护研究</div>", unsafe_allow_html=True)
 
@@ -1053,6 +1240,8 @@ if st.session_state.get("proc") is not None and (uploaded is None or not analyze
     </div>
     """
     st.markdown(legend_html, unsafe_allow_html=True)
+    # 色彩复原（缓存图）
+    render_color_restore_ui(img_rgb, default_open=False, key_suffix="color_cached")
 
     total_pixels = h*w
     crack_area = int(np.sum(mask_crack>0)); peel_area = int(np.sum(mask_peel>0)); disc_area = int(np.sum(mask_disc>0))
