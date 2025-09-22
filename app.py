@@ -721,7 +721,7 @@ else:
     st.sidebar.caption("当前标定：未标定")
 
 # Upload (支持历史对比：允许上传旧图像)
-tabs = st.tabs(["二维壁画诊断", "三维石窟监测（基础版）"])
+tabs = st.tabs(["二维壁画诊断", "三维石窟监测（基础版）", "文献资料识别（OCR）"])
 
 with tabs[0]:
     st.markdown("#### 1) 上传图像（可上传 1-2 张用于时间对比）")
@@ -1235,6 +1235,46 @@ with tabs[1]:
             except Exception as e:
                 st.exception(e)
                 st.error("三维处理失败，请确认文件格式并适当调小点数或阈值。")
+
+with tabs[2]:
+    st.markdown("#### 上传文献/资料图片进行文字识别（OCR）")
+    if RapidOCR is None:
+        st.info("未安装 rapidocr-onnxruntime，如需OCR：pip install rapidocr-onnxruntime")
+    else:
+        files_txt = st.file_uploader("上传图片（可多选）JPG/PNG", type=["jpg","jpeg","png"], accept_multiple_files=True, key="ocr_multi")
+        run_ocr = st.button("开始识别", key="run_ocr_batch")
+        if run_ocr:
+            if not files_txt:
+                st.warning("请先选择至少一张图片。")
+            else:
+                ocr = get_rapidocr_cached()
+                if ocr is None:
+                    st.error("OCR 初始化失败。")
+                else:
+                    all_lines = []
+                    for idx, f in enumerate(files_txt, start=1):
+                        st.write(f"第 {idx} 个文件：{f.name}")
+                        img_bytes = np.asarray(bytearray(f.read()), dtype=np.uint8)
+                        img = cv2.imdecode(img_bytes, cv2.IMREAD_COLOR)
+                        if img is None:
+                            st.warning("无法读取该图片，已跳过。")
+                            continue
+                        rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                        with st.spinner("OCR识别中…"):
+                            res, elapse = ocr(rgb)
+                        lines = []
+                        if res:
+                            for box, text, score in res:
+                                line = f"{text}\t{score:.3f}"
+                                lines.append(line)
+                                all_lines.append(f"[{f.name}]\t{line}")
+                            st.success(f"识别 {len(lines)} 行，用时 {elapse:.2f}s")
+                            st.code("\n".join(lines))
+                        else:
+                            st.info("未识别到文本。")
+                    if all_lines:
+                        txt = ("\n".join(all_lines)).encode("utf-8")
+                        st.download_button("下载全部OCR结果（txt）", data=txt, file_name="ocr_results.txt", mime="text/plain")
 
 # footer
 st.markdown(f"<div style='text-align:center;color:#666;margin-top:32px;'>© {datetime.now().year} 上海交大文物修复团队 | AI+文物保护研究</div>", unsafe_allow_html=True)
