@@ -27,6 +27,10 @@ try:
     import pandas as pd  # already imported above but for safety when 3D used
 except Exception:
     px = None
+try:
+    from rapidocr_onnxruntime import RapidOCR  # 轻量OCR，基于 onnxruntime
+except Exception:
+    RapidOCR = None
 
 st.set_page_config("石窟寺壁画病害AI识别工具（升级版）", layout="wide", page_icon="🏛️")
 
@@ -48,6 +52,15 @@ def _resize_bgr_cached(image_bgr_bytes: bytes, w: int, h: int):
     if img is None:
         raise ValueError("无法从缓存字节解码图像")
     return cv2.resize(img, (w, h), interpolation=cv2.INTER_AREA)
+
+@st.cache_resource(show_spinner=False)
+def get_rapidocr_cached():
+    if RapidOCR is None:
+        return None
+    try:
+        return RapidOCR()
+    except Exception:
+        return None
 
 # ---------------------------
 # Helpers: render inpainting UI
@@ -749,6 +762,29 @@ if uploaded is not None and analyze_btn:
                 st.warning(f"自动材质识别失败：{e}")
 
         st.image(img_rgb, width='stretch')
+
+        # OCR 识别（可选）
+        st.markdown("### 🔤 文字识别（OCR）")
+        if RapidOCR is None:
+            st.info("未安装 rapidocr-onnxruntime，如需OCR：pip install rapidocr-onnxruntime")
+        else:
+            if st.toggle("启用OCR识别（实验性）", value=False):
+                ocr = get_rapidocr_cached()
+                if ocr is None:
+                    st.warning("OCR 初始化失败。")
+                else:
+                    with st.spinner("OCR识别中…"):
+                        res, elapse = ocr(img_rgb)
+                    # 展示结果和可下载TXT
+                    ocr_lines = []
+                    if res:
+                        for box, text, score in res:
+                            ocr_lines.append(f"{text}\t{score:.3f}")
+                        st.success(f"识别到 {len(ocr_lines)} 行文本。")
+                        st.code("\n".join(ocr_lines))
+                        st.download_button("下载OCR结果（txt）", data=("\n".join(ocr_lines)).encode("utf-8"), file_name="ocr_result.txt", mime="text/plain")
+                    else:
+                        st.info("未识别到明显文本区域。")
 
         # Optionally run deep model
         deep_masks = None
