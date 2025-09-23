@@ -151,15 +151,35 @@ def inject_dynamic_background(images_data_urls: list[str], interval_ms: int = 80
     """
     st.markdown(css + js, unsafe_allow_html=True)
 
-def inject_brand_badge(logo_data_url: str | None):
-    logo_img_html = f'<img src="{logo_data_url}" alt="SJTU" />' if logo_data_url else ""
+def inject_footer_with_logo(logo_data_url: str | None):
+    logo_img_html = f'<img src="{logo_data_url}" alt="SJTU Design" />' if logo_data_url else ""
+    css = """
+    <style>
+    .app-footer {
+        position: fixed;
+        left: 0; right: 0; bottom: 0;
+        display: flex; justify-content: center; align-items: center;
+        gap: 12px;
+        padding: 8px 12px;
+        background: rgba(255,255,255,0.85);
+        backdrop-filter: blur(6px);
+        box-shadow: 0 -4px 18px rgba(0,0,0,0.08);
+        z-index: 10000;
+    }
+    .app-footer img { height: 26px; width: auto; display: block; }
+    .app-footer .foot-title { font-weight: 600; color: #333; font-size: 12px; }
+    .app-footer .foot-split { color: #aaa; }
+    </style>
+    """
     html = f"""
-    <div class="app-brand-badge">
+    <div class=\"app-footer\">
       {logo_img_html}
-      <div class="app-brand-title">上海交通大学<br/>设计学院</div>
+      <div class=\"foot-title\">上海交通大学 设计学院</div>
+      <span class=\"foot-split\">|</span>
+      <div class=\"foot-title\">AI+文物保护研究</div>
     </div>
     """
-    st.markdown(html, unsafe_allow_html=True)
+    st.markdown(css + html, unsafe_allow_html=True)
 
 def _file_to_data_url(file_bytes: bytes, filename: str) -> str:
     ext = os.path.splitext(filename)[1].lower()
@@ -1248,15 +1268,8 @@ else:
 try:
     bg_imgs = get_background_images_b64()
     inject_dynamic_background(bg_imgs, interval_ms=10000)
-    # 允许用户在侧边栏上传自定义校徽，优先显示
-    with st.sidebar.expander("品牌标识（可自定义）", expanded=False):
-        user_logo = st.file_uploader("上传设计学院Logo（PNG/JPG/WebP）", type=["png","jpg","jpeg","webp"], key="sjtu_logo_upload")
-        if user_logo is not None:
-            logo_data = _file_to_data_url(user_logo.read(), user_logo.name)
-        else:
-            logo_data = get_logo_b64()
-        st.caption("未上传时，将自动尝试加载 assets/sjtu_design.png 等内置路径")
-    inject_brand_badge(logo_data)
+    logo_data = get_logo_b64()
+    inject_footer_with_logo(logo_data)
 except Exception:
     pass
 tabs = st.tabs(["二维壁画诊断", "三维石窟监测（基础版）", "文献资料识别（OCR）", "多模态融合诊断"])
