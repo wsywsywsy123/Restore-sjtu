@@ -11,6 +11,7 @@ from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.units import mm
 import base64
+import os
 import sys
 try:
     import onnxruntime as ort  # 深度分割推理
@@ -51,6 +52,114 @@ st.set_page_config("石窟寺壁画病害AI识别工具（升级版）", layout=
 # Session init
 if "proc" not in st.session_state:
     st.session_state["proc"] = None
+
+# ---------------------------
+# 动态背景与品牌标识
+# ---------------------------
+
+@st.cache_data(show_spinner=False)
+def get_background_images_b64(dir_path: str = "assets/backgrounds"):
+    exts = {".jpg", ".jpeg", ".png", ".webp"}
+    images: list[str] = []
+    try:
+        if os.path.isdir(dir_path):
+            for name in sorted(os.listdir(dir_path)):
+                ext = os.path.splitext(name)[1].lower()
+                if ext in exts:
+                    full = os.path.join(dir_path, name)
+                    with open(full, "rb") as f:
+                        b64 = base64.b64encode(f.read()).decode("utf-8")
+                        mime = "image/png" if ext == ".png" else ("image/webp" if ext == ".webp" else "image/jpeg")
+                        images.append(f"data:{mime};base64,{b64}")
+    except Exception:
+        pass
+    return images
+
+@st.cache_data(show_spinner=False)
+def get_logo_b64(candidates: list[str] = [
+    "assets/sjtu_design.png", "assets/sjtu.png", "assets/logo_sjtu.png"
+]):
+    for p in candidates:
+        try:
+            if os.path.isfile(p):
+                with open(p, "rb") as f:
+                    b64 = base64.b64encode(f.read()).decode("utf-8")
+                    ext = os.path.splitext(p)[1].lower()
+                    mime = "image/png" if ext == ".png" else ("image/webp" if ext == ".webp" else "image/jpeg")
+                    return f"data:{mime};base64,{b64}"
+        except Exception:
+            continue
+    return None
+
+def inject_dynamic_background(images_data_urls: list[str], interval_ms: int = 8000):
+    if not images_data_urls:
+        return
+    imgs_js_array = ",".join([f"'" + u + "'" for u in images_data_urls])
+    css = f"""
+    <style>
+    .stApp {{
+        background-size: cover !important;
+        background-position: center center !important;
+        background-attachment: fixed !important;
+        transition: background-image 1.2s ease-in-out;
+    }}
+    .bg-overlay::before {{
+        content: "";
+        position: fixed;
+        inset: 0;
+        background: radial-gradient(ellipse at center, rgba(0,0,0,0.25), rgba(0,0,0,0.45));
+        pointer-events: none;
+        z-index: 0;
+    }}
+    .app-brand-badge {{
+        position: fixed;
+        right: 16px;
+        bottom: 16px;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        background: rgba(255,255,255,0.8);
+        backdrop-filter: blur(6px);
+        border-radius: 10px;
+        padding: 8px 12px;
+        box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+        z-index: 9999;
+    }}
+    .app-brand-badge img {{ height: 28px; width: auto; display:block; }}
+    .app-brand-title {{ font-weight: 600; color: #333; font-size: 13px; line-height: 1.2; }}
+    </style>
+    """
+    js = f"""
+    <script>
+    const bgImgs = [{imgs_js_array}];
+    let idx = 0;
+    function applyBg() {{
+      const el = parent.document.querySelector('.stApp');
+      if (!el) return;
+      el.style.backgroundImage = `url(${bgImgs[idx]})`;
+      idx = (idx + 1) % bgImgs.length;
+    }}
+    applyBg();
+    if (!window.__bgInterval) {{
+      window.__bgInterval = setInterval(applyBg, {interval_ms});
+    }}
+    const root = parent.document.querySelector('.stApp');
+    if (root && !root.classList.contains('bg-overlay')) {{
+      root.classList.add('bg-overlay');
+    }}
+    </script>
+    """
+    st.markdown(css + js, unsafe_allow_html=True)
+
+def inject_brand_badge(logo_data_url: str | None):
+    logo_img_html = f'<img src="{logo_data_url}" alt="SJTU" />' if logo_data_url else ""
+    html = f"""
+    <div class="app-brand-badge">
+      {logo_img_html}
+      <div class="app-brand-title">上海交通大学<br/>设计学院</div>
+    </div>
+    """
+    st.markdown(html, unsafe_allow_html=True)
 
 # ---------------------------
 # 多模态融合系统
@@ -1129,6 +1238,14 @@ else:
     st.sidebar.caption("当前标定：未标定")
 
 # Upload (支持历史对比：允许上传旧图像)
+# 页面装饰：动态背景与校徽角标
+try:
+    bg_imgs = get_background_images_b64()
+    inject_dynamic_background(bg_imgs, interval_ms=10000)
+    logo_data = get_logo_b64()
+    inject_brand_badge(logo_data)
+except Exception:
+    pass
 tabs = st.tabs(["二维壁画诊断", "三维石窟监测（基础版）", "文献资料识别（OCR）", "多模态融合诊断"])
 
 with tabs[0]:
