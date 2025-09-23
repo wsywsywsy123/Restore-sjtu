@@ -4,6 +4,21 @@ opencv-python==4.9.0.80
 numpy==1.26.4
 onnx==1.16.1
 
+# Streamlit app dependencies
+streamlit
+pillow
+reportlab
+onnxruntime
+open3d
+plotly
+pandas
+rapidocr-onnxruntime
+
+# 多模态融合依赖
+transformers
+networkx
+scikit-learn
+
 # Collector extras (install separately if needed)
 duckduckgo-search==7.4.2
 aiohttp==3.10.11
