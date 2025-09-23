@@ -161,6 +161,12 @@ def inject_brand_badge(logo_data_url: str | None):
     """
     st.markdown(html, unsafe_allow_html=True)
 
+def _file_to_data_url(file_bytes: bytes, filename: str) -> str:
+    ext = os.path.splitext(filename)[1].lower()
+    mime = "image/png" if ext == ".png" else ("image/webp" if ext == ".webp" else "image/jpeg")
+    b64 = base64.b64encode(file_bytes).decode("utf-8")
+    return f"data:{mime};base64,{b64}"
+
 # ---------------------------
 # 多模态融合系统
 # ---------------------------
@@ -1242,7 +1248,14 @@ else:
 try:
     bg_imgs = get_background_images_b64()
     inject_dynamic_background(bg_imgs, interval_ms=10000)
-    logo_data = get_logo_b64()
+    # 允许用户在侧边栏上传自定义校徽，优先显示
+    with st.sidebar.expander("品牌标识（可自定义）", expanded=False):
+        user_logo = st.file_uploader("上传设计学院Logo（PNG/JPG/WebP）", type=["png","jpg","jpeg","webp"], key="sjtu_logo_upload")
+        if user_logo is not None:
+            logo_data = _file_to_data_url(user_logo.read(), user_logo.name)
+        else:
+            logo_data = get_logo_b64()
+        st.caption("未上传时，将自动尝试加载 assets/sjtu_design.png 等内置路径")
     inject_brand_badge(logo_data)
 except Exception:
     pass
