@@ -1268,8 +1268,7 @@ else:
 try:
     bg_imgs = get_background_images_b64()
     inject_dynamic_background(bg_imgs, interval_ms=10000)
-    logo_data = get_logo_b64()
-    inject_footer_with_logo(logo_data)
+    # 保留动态背景，不再注入固定浮动底栏
 except Exception:
     pass
 tabs = st.tabs(["二维壁画诊断", "三维石窟监测（基础版）", "文献资料识别（OCR）", "多模态融合诊断"])
@@ -1670,7 +1669,7 @@ if uploaded is not None and analyze_btn:
                     story.append(Paragraph(t, styles['Normal']))
                 story.append(Spacer(1,8))
 
-            story.append(Paragraph(f"© {datetime.now().year} 上海交大文物修复团队 | AI+文物保护研究", styles['Normal']))
+            story.append(Paragraph(f"© {datetime.now().year} 上海交通大学设计学院文物修复团队 | AI+文物保护研究", styles['Normal']))
             doc.build(story)
             buf.seek(0)
             return buf
@@ -2057,7 +2056,9 @@ with tabs[3]:
                 )
 
 # footer
-st.markdown(f"<div style='text-align:center;color:#666;margin-top:32px;'>© {datetime.now().year} 上海交大文物修复团队 | AI+文物保护研究</div>", unsafe_allow_html=True)
+_logo_footer = get_logo_b64()
+_logo_html = f"<img src='{_logo_footer}' alt='SJTU Design' style='height:18px;vertical-align:middle;margin-right:8px;'/>" if _logo_footer else ""
+st.markdown(f"<div style='text-align:center;color:#666;margin-top:32px;'>{_logo_html}© {datetime.now().year} 上海交通大学设计学院文物修复团队 | AI+文物保护研究</div>", unsafe_allow_html=True)
 
 # If cached results exist, allow re-render with current toggles without re-uploading
 if st.session_state.get("proc") is not None and (uploaded is None or not analyze_btn):
