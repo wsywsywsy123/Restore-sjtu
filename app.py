@@ -13,6 +13,41 @@ from reportlab.lib.units import mm
 import base64
 import os
 import sys
+
+# 深度学习相关导入
+try:
+    # 修复Windows上的PyTorch DLL路径问题
+    import os
+    import sys
+    
+    # 设置环境变量来避免DLL路径问题
+    os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
+    os.environ['OMP_NUM_THREADS'] = '1'
+    
+    # 尝试导入PyTorch
+    try:
+        import torch
+        import torch.nn as nn
+        import torch.optim as optim
+        from torch.utils.data import DataLoader, Dataset
+        import torchvision.transforms as transforms
+        from torchvision import models
+        import albumentations as A
+        from albumentations.pytorch import ToTensorV2
+        import matplotlib.pyplot as plt
+        import seaborn as sns
+        from sklearn.metrics import classification_report, confusion_matrix
+        DEEP_LEARNING_AVAILABLE = True
+    except OSError as e:
+        if "参数错误" in str(e) or "WinError 87" in str(e):
+            # 如果PyTorch DLL有问题，禁用深度学习功能
+            DEEP_LEARNING_AVAILABLE = False
+            print(f"警告: PyTorch DLL加载失败，深度学习功能已禁用: {e}")
+        else:
+            raise e
+except ImportError as e:
+    DEEP_LEARNING_AVAILABLE = False
+    print(f"深度学习功能不可用: {e}")
 try:
     import onnxruntime as ort  # 深度分割推理
 except Exception:
@@ -69,9 +104,6 @@ st.set_page_config("石窟寺壁画病害AI识别工具（升级版）", layout=
 # 添加欢迎横幅
 st.markdown("""
 <div style="text-align:center;margin-bottom:2rem;">
-    <h1 style="background:linear-gradient(135deg, #667eea 0%, #764ba2 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;font-size:2.5rem;font-weight:700;margin-bottom:0.5rem;">
-        🏛️ 石窟寺壁画病害AI识别工具
-    </h1>
     <p style="color:#7f8c8d;font-size:1.1rem;margin:0;">
         多模态融合 · 智能诊断 · 虚拟修复 · 知识驱动
     </p>
@@ -778,238 +810,239 @@ def get_generative_augmentation():
 # 深度学习系统
 # ---------------------------
 
-class MuralDataset(Dataset):
-    """壁画病害数据集"""
-    def __init__(self, images, labels, transform=None):
-        self.images = images
-        self.labels = labels
-        self.transform = transform
-    
-    def __len__(self):
-        return len(self.images)
-    
-    def __getitem__(self, idx):
-        image = self.images[idx]
-        label = self.labels[idx]
+if DEEP_LEARNING_AVAILABLE:
+    class MuralDataset(Dataset):
+        """壁画病害数据集"""
+        def __init__(self, images, labels, transform=None):
+            self.images = images
+            self.labels = labels
+            self.transform = transform
         
-        if self.transform:
-            image = self.transform(image)
+        def __len__(self):
+            return len(self.images)
         
-        return image, label
-
-class DefectClassifier(nn.Module):
-    """病害分类器"""
-    def __init__(self, num_classes=6, pretrained=True):
-        super(DefectClassifier, self).__init__()
-        
-        # 使用预训练的ResNet作为骨干网络
-        self.backbone = torchvision.models.resnet50(pretrained=pretrained)
-        num_features = self.backbone.fc.in_features
-        
-        # 替换最后的全连接层
-        self.backbone.fc = nn.Sequential(
-            nn.Dropout(0.5),
-            nn.Linear(num_features, 512),
-            nn.ReLU(),
-            nn.Dropout(0.3),
-            nn.Linear(512, num_classes)
-        )
-    
-    def forward(self, x):
-        return self.backbone(x)
-
-class DataAugmentation:
-    """数据增强"""
-    def __init__(self):
-        self.transform = A.Compose([
-            A.HorizontalFlip(p=0.5),
-            A.VerticalFlip(p=0.3),
-            A.Rotate(limit=15, p=0.5),
-            A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.5),
-            A.GaussNoise(var_limit=(10.0, 50.0), p=0.3),
-            A.Blur(blur_limit=3, p=0.3),
-            A.RandomCrop(height=224, width=224, p=0.8),
-            A.Resize(height=224, width=224),
-            A.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-            ToTensorV2()
-        ])
-    
-    def __call__(self, image):
-        return self.transform(image=image)['image']
-
-class ModelTrainer:
-    """模型训练器"""
-    def __init__(self, model, device='cpu'):
-        self.model = model
-        self.device = device
-        self.model.to(device)
-        self.train_losses = []
-        self.val_losses = []
-        self.train_accuracies = []
-        self.val_accuracies = []
-    
-    def train_epoch(self, train_loader, optimizer, criterion):
-        self.model.train()
-        total_loss = 0
-        correct = 0
-        total = 0
-        
-        for batch_idx, (data, target) in enumerate(train_loader):
-            data, target = data.to(self.device), target.to(self.device)
+        def __getitem__(self, idx):
+            image = self.images[idx]
+            label = self.labels[idx]
             
-            optimizer.zero_grad()
-            output = self.model(data)
-            loss = criterion(output, target)
-            loss.backward()
-            optimizer.step()
+            if self.transform:
+                image = self.transform(image)
             
-            total_loss += loss.item()
-            pred = output.argmax(dim=1, keepdim=True)
-            correct += pred.eq(target.view_as(pred)).sum().item()
-            total += target.size(0)
+            return image, label
+
+    class DefectClassifier(nn.Module):
+        """病害分类器"""
+        def __init__(self, num_classes=6, pretrained=True):
+            super(DefectClassifier, self).__init__()
+            
+            # 使用预训练的ResNet作为骨干网络
+            self.backbone = models.resnet50(pretrained=pretrained)
+            num_features = self.backbone.fc.in_features
+            
+            # 替换最后的全连接层
+            self.backbone.fc = nn.Sequential(
+                nn.Dropout(0.5),
+                nn.Linear(num_features, 512),
+                nn.ReLU(),
+                nn.Dropout(0.3),
+                nn.Linear(512, num_classes)
+            )
         
-        avg_loss = total_loss / len(train_loader)
-        accuracy = 100. * correct / total
+        def forward(self, x):
+            return self.backbone(x)
+
+    class DataAugmentation:
+        """数据增强"""
+        def __init__(self):
+            self.transform = A.Compose([
+                A.HorizontalFlip(p=0.5),
+                A.VerticalFlip(p=0.3),
+                A.Rotate(limit=15, p=0.5),
+                A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.5),
+                A.GaussNoise(var_limit=(10.0, 50.0), p=0.3),
+                A.Blur(blur_limit=3, p=0.3),
+                A.RandomCrop(height=224, width=224, p=0.8),
+                A.Resize(height=224, width=224),
+                A.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+                ToTensorV2()
+            ])
         
-        self.train_losses.append(avg_loss)
-        self.train_accuracies.append(accuracy)
+        def __call__(self, image):
+            return self.transform(image=image)['image']
+
+    class ModelTrainer:
+        """模型训练器"""
+        def __init__(self, model, device='cpu'):
+            self.model = model
+            self.device = device
+            self.model.to(device)
+            self.train_losses = []
+            self.val_losses = []
+            self.train_accuracies = []
+            self.val_accuracies = []
         
-        return avg_loss, accuracy
-    
-    def validate(self, val_loader, criterion):
-        self.model.eval()
-        total_loss = 0
-        correct = 0
-        total = 0
-        
-        with torch.no_grad():
-            for data, target in val_loader:
+        def train_epoch(self, train_loader, optimizer, criterion):
+            self.model.train()
+            total_loss = 0
+            correct = 0
+            total = 0
+            
+            for batch_idx, (data, target) in enumerate(train_loader):
                 data, target = data.to(self.device), target.to(self.device)
+                
+                optimizer.zero_grad()
                 output = self.model(data)
                 loss = criterion(output, target)
+                loss.backward()
+                optimizer.step()
                 
                 total_loss += loss.item()
                 pred = output.argmax(dim=1, keepdim=True)
                 correct += pred.eq(target.view_as(pred)).sum().item()
                 total += target.size(0)
-        
-        avg_loss = total_loss / len(val_loader)
-        accuracy = 100. * correct / total
-        
-        self.val_losses.append(avg_loss)
-        self.val_accuracies.append(accuracy)
-        
-        return avg_loss, accuracy
-    
-    def train(self, train_loader, val_loader, epochs, learning_rate=0.001, scheduler_type='step'):
-        optimizer = Adam(self.model.parameters(), lr=learning_rate)
-        criterion = nn.CrossEntropyLoss()
-        
-        if scheduler_type == 'step':
-            scheduler = StepLR(optimizer, step_size=10, gamma=0.1)
-        else:
-            scheduler = CosineAnnealingLR(optimizer, T_max=epochs)
-        
-        for epoch in range(epochs):
-            train_loss, train_acc = self.train_epoch(train_loader, optimizer, criterion)
-            val_loss, val_acc = self.validate(val_loader, criterion)
-            scheduler.step()
             
-            yield epoch, train_loss, train_acc, val_loss, val_acc
-
-class ModelEvaluator:
-    """模型评估器"""
-    def __init__(self, model, device='cpu'):
-        self.model = model
-        self.device = device
-    
-    def evaluate(self, test_loader):
-        self.model.eval()
-        all_preds = []
-        all_targets = []
+            avg_loss = total_loss / len(train_loader)
+            accuracy = 100. * correct / total
+            
+            self.train_losses.append(avg_loss)
+            self.train_accuracies.append(accuracy)
+            
+            return avg_loss, accuracy
         
-        with torch.no_grad():
-            for data, target in test_loader:
-                data, target = data.to(self.device), target.to(self.device)
-                output = self.model(data)
-                pred = output.argmax(dim=1)
-                
-                all_preds.extend(pred.cpu().numpy())
-                all_targets.extend(target.cpu().numpy())
+        def validate(self, val_loader, criterion):
+            self.model.eval()
+            total_loss = 0
+            correct = 0
+            total = 0
+            
+            with torch.no_grad():
+                for data, target in val_loader:
+                    data, target = data.to(self.device), target.to(self.device)
+                    output = self.model(data)
+                    loss = criterion(output, target)
+                    
+                    total_loss += loss.item()
+                    pred = output.argmax(dim=1, keepdim=True)
+                    correct += pred.eq(target.view_as(pred)).sum().item()
+                    total += target.size(0)
+            
+            avg_loss = total_loss / len(val_loader)
+            accuracy = 100. * correct / total
+            
+            self.val_losses.append(avg_loss)
+            self.val_accuracies.append(accuracy)
+            
+            return avg_loss, accuracy
         
-        return all_preds, all_targets
-    
-    def plot_confusion_matrix(self, y_true, y_pred, class_names):
-        cm = confusion_matrix(y_true, y_pred)
-        plt.figure(figsize=(10, 8))
-        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
-                   xticklabels=class_names, yticklabels=class_names)
-        plt.title('Confusion Matrix')
-        plt.ylabel('True Label')
-        plt.xlabel('Predicted Label')
-        return plt.gcf()
-    
-    def plot_training_history(self, trainer):
-        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
-        
-        # Loss plot
-        ax1.plot(trainer.train_losses, label='Training Loss')
-        ax1.plot(trainer.val_losses, label='Validation Loss')
-        ax1.set_title('Model Loss')
-        ax1.set_xlabel('Epoch')
-        ax1.set_ylabel('Loss')
-        ax1.legend()
-        ax1.grid(True)
-        
-        # Accuracy plot
-        ax2.plot(trainer.train_accuracies, label='Training Accuracy')
-        ax2.plot(trainer.val_accuracies, label='Validation Accuracy')
-        ax2.set_title('Model Accuracy')
-        ax2.set_xlabel('Epoch')
-        ax2.set_ylabel('Accuracy (%)')
-        ax2.legend()
-        ax2.grid(True)
-        
-        plt.tight_layout()
-        return fig
-
-class TransferLearning:
-    """迁移学习"""
-    def __init__(self, base_model_name='resnet50'):
-        self.base_model_name = base_model_name
-        self.available_models = {
-            'resnet50': torchvision.models.resnet50,
-            'resnet101': torchvision.models.resnet101,
-            'densenet121': torchvision.models.densenet121,
-            'efficientnet_b0': torchvision.models.efficientnet_b0,
-            'vgg16': torchvision.models.vgg16
-        }
-    
-    def get_pretrained_model(self, num_classes, freeze_backbone=True):
-        if self.base_model_name not in self.available_models:
-            raise ValueError(f"Model {self.base_model_name} not supported")
-        
-        model_func = self.available_models[self.base_model_name]
-        model = model_func(pretrained=True)
-        
-        # 冻结骨干网络参数
-        if freeze_backbone:
-            for param in model.parameters():
-                param.requires_grad = False
-        
-        # 替换分类头
-        if hasattr(model, 'fc'):  # ResNet
-            num_features = model.fc.in_features
-            model.fc = nn.Linear(num_features, num_classes)
-        elif hasattr(model, 'classifier'):  # DenseNet, VGG
-            if isinstance(model.classifier, nn.Sequential):
-                num_features = model.classifier[-1].in_features
-                model.classifier[-1] = nn.Linear(num_features, num_classes)
+        def train(self, train_loader, val_loader, epochs, learning_rate=0.001, scheduler_type='step'):
+            optimizer = optim.Adam(self.model.parameters(), lr=learning_rate)
+            criterion = nn.CrossEntropyLoss()
+            
+            if scheduler_type == 'step':
+                scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
             else:
-                num_features = model.classifier.in_features
-                model.classifier = nn.Linear(num_features, num_classes)
+                scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
+            
+            for epoch in range(epochs):
+                train_loss, train_acc = self.train_epoch(train_loader, optimizer, criterion)
+                val_loss, val_acc = self.validate(val_loader, criterion)
+                scheduler.step()
+                
+                yield epoch, train_loss, train_acc, val_loss, val_acc
+
+    class ModelEvaluator:
+        """模型评估器"""
+        def __init__(self, model, device='cpu'):
+            self.model = model
+            self.device = device
         
-        return model
+        def evaluate(self, test_loader):
+            self.model.eval()
+            all_preds = []
+            all_targets = []
+            
+            with torch.no_grad():
+                for data, target in test_loader:
+                    data, target = data.to(self.device), target.to(self.device)
+                    output = self.model(data)
+                    pred = output.argmax(dim=1)
+                    
+                    all_preds.extend(pred.cpu().numpy())
+                    all_targets.extend(target.cpu().numpy())
+            
+            return all_preds, all_targets
+        
+        def plot_confusion_matrix(self, y_true, y_pred, class_names):
+            cm = confusion_matrix(y_true, y_pred)
+            plt.figure(figsize=(10, 8))
+            sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', 
+                       xticklabels=class_names, yticklabels=class_names)
+            plt.title('Confusion Matrix')
+            plt.ylabel('True Label')
+            plt.xlabel('Predicted Label')
+            return plt.gcf()
+        
+        def plot_training_history(self, trainer):
+            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(15, 5))
+            
+            # Loss plot
+            ax1.plot(trainer.train_losses, label='Training Loss')
+            ax1.plot(trainer.val_losses, label='Validation Loss')
+            ax1.set_title('Model Loss')
+            ax1.set_xlabel('Epoch')
+            ax1.set_ylabel('Loss')
+            ax1.legend()
+            ax1.grid(True)
+            
+            # Accuracy plot
+            ax2.plot(trainer.train_accuracies, label='Training Accuracy')
+            ax2.plot(trainer.val_accuracies, label='Validation Accuracy')
+            ax2.set_title('Model Accuracy')
+            ax2.set_xlabel('Epoch')
+            ax2.set_ylabel('Accuracy (%)')
+            ax2.legend()
+            ax2.grid(True)
+            
+            plt.tight_layout()
+            return fig
+
+    class TransferLearning:
+        """迁移学习"""
+        def __init__(self, base_model_name='resnet50'):
+            self.base_model_name = base_model_name
+            self.available_models = {
+                'resnet50': models.resnet50,
+                'resnet101': models.resnet101,
+                'densenet121': models.densenet121,
+                'efficientnet_b0': models.efficientnet_b0,
+                'vgg16': models.vgg16
+            }
+        
+        def get_pretrained_model(self, num_classes, freeze_backbone=True):
+            if self.base_model_name not in self.available_models:
+                raise ValueError(f"Model {self.base_model_name} not supported")
+            
+            model_func = self.available_models[self.base_model_name]
+            model = model_func(pretrained=True)
+            
+            # 冻结骨干网络参数
+            if freeze_backbone:
+                for param in model.parameters():
+                    param.requires_grad = False
+            
+            # 替换分类头
+            if hasattr(model, 'fc'):  # ResNet
+                num_features = model.fc.in_features
+                model.fc = nn.Linear(num_features, num_classes)
+            elif hasattr(model, 'classifier'):  # DenseNet, VGG
+                if isinstance(model.classifier, nn.Sequential):
+                    num_features = model.classifier[-1].in_features
+                    model.classifier[-1] = nn.Linear(num_features, num_classes)
+                else:
+                    num_features = model.classifier.in_features
+                    model.classifier = nn.Linear(num_features, num_classes)
+            
+            return model
 
 # 全局深度学习系统实例
 @st.cache_resource
@@ -1051,15 +1084,9 @@ def get_rapidocr_cached():
 # ---------------------------
 # Helpers: render inpainting UI
 # ---------------------------
-# 深度学习系统
-# ---------------------------
-if DEEP_LEARNING_AVAILABLE:
-    class MuralDataset(Dataset):
-        """壁画病害数据集"""
-        def __init__(self, images, labels, transform=None):
-            self.images = images
-            self.labels = labels
-            self.transform = transform
+def render_inpainting_ui(img_rgb, mask_crack, mask_peel, mask_disc, mask_stain, mask_salt, mask_bio, default_open=True, key_suffix=""):
+    st.markdown("### 🧩 图像复原（试验性 Inpainting）")
+    with st.expander("展开/收起", expanded=default_open):
         
         def __len__(self):
             return len(self.images)
@@ -1701,8 +1728,8 @@ def run_segmentation_model(image_bgr, model_path, input_size=512, class_ids=None
 # ---------------------------
 # UI and main logic
 # ---------------------------
-st.markdown("<h1 style='text-align:center;color:#8B4513;'>🏛️ 石窟寺壁画病害AI识别工具（升级版）</h1>", unsafe_allow_html=True)
-st.write("本工具为科研原型：采用传统图像处理方法作为基线，并提供深度模型接入点；输出病害检测、严重度评分、材质自适应建议与含标注图像的 PDF。")
+# 主标题
+st.markdown("<h1 style='text-align:center;color:#8B4513;margin-bottom:1rem;'>🏛️ 石窟寺壁画病害AI识别工具（升级版）</h1>", unsafe_allow_html=True)
 
 # Sidebar controls
 st.sidebar.markdown("### 配置与材质选择")
