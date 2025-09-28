@@ -1,0 +1,42 @@
+{
+  "dataset_name": "壁画病害分类数据集",
+  "num_classes": 4,
+  "class_names": [
+    "crack",
+    "peel",
+    "disc",
+    "clean"
+  ],
+  "image_size": [
+    224,
+    224
+  ],
+  "num_channels": 3,
+  "splits": {
+    "train": 27,
+    "val": 6,
+    "test": 8
+  },
+  "categories": {
+    "crack": {
+      "train": 6,
+      "val": 1,
+      "test": 2
+    },
+    "peel": {
+      "train": 8,
+      "val": 2,
+      "test": 2
+    },
+    "disc": {
+      "train": 8,
+      "val": 2,
+      "test": 2
+    },
+    "clean": {
+      "train": 5,
+      "val": 1,
+      "test": 2
+    }
+  }
+}

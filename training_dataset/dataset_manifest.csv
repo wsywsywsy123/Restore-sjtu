@@ -1,0 +1,42 @@
+﻿original_path,category,split,filename,new_path
+"dataset_raw\crack\u=2990623577,3480339365&fm=253&fmt=auto&app=138&f=JPEG.webp",crack,train,crack_train_0000.webp,train/crack/crack_train_0000.webp
+dataset_raw\crack\下载 (1).jpg,crack,train,crack_train_0001.jpg,train/crack/crack_train_0001.jpg
+dataset_raw\crack\640.webp,crack,train,crack_train_0002.webp,train/crack/crack_train_0002.webp
+dataset_raw\crack\117472CD7B4E90C3F97E44321EFB1784B93BE110_size239_w1080_h763.jpg,crack,train,crack_train_0003.jpg,train/crack/crack_train_0003.jpg
+"dataset_raw\crack\u=375666464,3096641082&fm=253&fmt=auto&app=138&f=JPEG.webp",crack,train,crack_train_0004.webp,train/crack/crack_train_0004.webp
+"dataset_raw\crack\u=3052688103,1646550410&fm=253&fmt=auto&app=138&f=JPEG (1).webp",crack,train,crack_train_0005.webp,train/crack/crack_train_0005.webp
+dataset_raw\crack\b3119313b07eca80af7b231a07934fd8a0448303.jpeg,crack,val,crack_val_0000.jpeg,val/crack/crack_val_0000.jpeg
+"dataset_raw\crack\u=96880666,123677988&fm=3074&app=3074&f=JPEG.jpg",crack,test,crack_test_0000.jpg,test/crack/crack_test_0000.jpg
+"dataset_raw\crack\u=422068031,1772952745&fm=193.jpg",crack,test,crack_test_0001.jpg,test/crack/crack_test_0001.jpg
+dataset_raw\peel\下载.jpg,peel,train,peel_train_0000.jpg,train/peel/peel_train_0000.jpg
+"dataset_raw\peel\u=4227567975,2591362402&fm=253&fmt=auto&app=138&f=JPEG.webp",peel,train,peel_train_0001.webp,train/peel/peel_train_0001.webp
+dataset_raw\peel\9fc3b9413b5f4b2995ccbc915a563d12.jpeg,peel,train,peel_train_0002.jpeg,train/peel/peel_train_0002.jpeg
+dataset_raw\peel\7e3e6709c93d70cfbe803517ab9dec0fbaa12b06.jpeg,peel,train,peel_train_0003.jpeg,train/peel/peel_train_0003.jpeg
+"dataset_raw\peel\u=2413595134,825046076&fm=253&fmt=auto&app=138&f=JPEG.webp",peel,train,peel_train_0004.webp,train/peel/peel_train_0004.webp
+dataset_raw\peel\v2-ca1d0f3f77490a18cee4056dc3c3817a_r.jpg,peel,train,peel_train_0005.jpg,train/peel/peel_train_0005.jpg
+dataset_raw\peel\57cb3b8279e24959b9de617171c0238f.jpeg,peel,train,peel_train_0006.jpeg,train/peel/peel_train_0006.jpeg
+dataset_raw\peel\640.webp,peel,train,peel_train_0007.webp,train/peel/peel_train_0007.webp
+dataset_raw\peel\v2-881909259c7679907d6e1404ea580828_r.jpg,peel,val,peel_val_0000.jpg,val/peel/peel_val_0000.jpg
+dataset_raw\peel\0995f3b5c5fa4df0912d4a7c729f55a3.jpeg,peel,val,peel_val_0001.jpeg,val/peel/peel_val_0001.jpeg
+"dataset_raw\peel\u=1492447580,3509632076&fm=253&fmt=auto&app=138&f=JPEG.webp",peel,test,peel_test_0000.webp,test/peel/peel_test_0000.webp
+"dataset_raw\peel\u=598325229,3485879825&fm=253&fmt=auto&app=138&f=JPEG.webp",peel,test,peel_test_0001.webp,test/peel/peel_test_0001.webp
+"dataset_raw\disc\u=3316239129,270334789&fm=30&app=106&f=JPEG.jpg",disc,train,disc_train_0000.jpg,train/disc/disc_train_0000.jpg
+dataset_raw\disc\006eY6prly1g4r6z05nuaj30mz16mtqb.jpg,disc,train,disc_train_0001.jpg,train/disc/disc_train_0001.jpg
+dataset_raw\disc\src=http___b-ssl.duitang.com_uploads_item_201802_10_20180210165612_bfzya.thumb.700_0.jpg&refer=http___b-ssl.duitang.webp,disc,train,disc_train_0002.webp,train/disc/disc_train_0002.webp
+"dataset_raw\disc\u=3052688103,1646550410&fm=253&fmt=auto&app=138&f=JPEG.webp",disc,train,disc_train_0003.webp,train/disc/disc_train_0003.webp
+"dataset_raw\disc\u=4077524689,1570917576&fm=253&fmt=auto&app=138&f=JPEG.webp",disc,train,disc_train_0004.webp,train/disc/disc_train_0004.webp
+dataset_raw\disc\f841-4d1661914dc9f8eb9f4095a0989bed01.jpg,disc,train,disc_train_0005.jpg,train/disc/disc_train_0005.jpg
+dataset_raw\disc\640 (1).webp,disc,train,disc_train_0006.webp,train/disc/disc_train_0006.webp
+"dataset_raw\disc\u=4119676584,829962710&fm=253&fmt=auto&app=138&f=JPEG.webp",disc,train,disc_train_0007.webp,train/disc/disc_train_0007.webp
+"dataset_raw\disc\u=1280552042,3851846570&fm=253&fmt=auto&app=138&f=JPEG.webp",disc,val,disc_val_0000.webp,val/disc/disc_val_0000.webp
+dataset_raw\disc\src=http___image109.360doc.com_DownloadImg_2018_11_1621_147365168_1_20181116095043137&refer=http___image109.360doc.webp,disc,val,disc_val_0001.webp,val/disc/disc_val_0001.webp
+"dataset_raw\disc\u=1486509603,2577950081&fm=253&fmt=auto&app=138&f=JPEG.webp",disc,test,disc_test_0000.webp,test/disc/disc_test_0000.webp
+dataset_raw\disc\09fa513d269759ee3d6d65b358ad54166d224f4a7136.jpg,disc,test,disc_test_0001.jpg,test/disc/disc_test_0001.jpg
+dataset_raw\clean\95f6722756ed4d14a58de434baa570f8.webp,clean,train,clean_train_0000.webp,train/clean/clean_train_0000.webp
+dataset_raw\clean\171115831177628.jpg,clean,train,clean_train_0001.jpg,train/clean/clean_train_0001.jpg
+dataset_raw\clean\src=http___image109.360doc.com_DownloadImg_2025_08_1900_300858174_2_20250819123723286.jpeg&refer=http___image109.360doc.webp,clean,train,clean_train_0002.webp,train/clean/clean_train_0002.webp
+"dataset_raw\clean\u=3124533069,1327587796&fm=253&app=138&f=JPEG.jpg",clean,train,clean_train_0003.jpg,train/clean/clean_train_0003.jpg
+"dataset_raw\clean\u=1644435142,2691192688&fm=253&app=138&f=JPEG.jpg",clean,train,clean_train_0004.jpg,train/clean/clean_train_0004.jpg
+dataset_raw\clean\NyUEjQaKRjqCn9zvenr6nXS8zTiMk-9kQ42gDqegS5EFHFxGOJtZhoAD7l3hnmGC.jpg,clean,val,clean_val_0000.jpg,val/clean/clean_val_0000.jpg
+"dataset_raw\clean\u=2778028389,1375894380&fm=253&app=138&f=JPEG.jpg",clean,test,clean_test_0000.jpg,test/clean/clean_test_0000.jpg
+dataset_raw\clean\0.png,clean,test,clean_test_0001.png,test/clean/clean_test_0001.png

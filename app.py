@@ -1561,6 +1561,7 @@ def run_material_model(image_bgr, model_path, providers=None, class_names=None):
     inp = np.transpose(inp, (2,0,1))[None, ...]
     input_name = session.get_inputs()[0].name
     output_name = session.get_outputs()[0].name
+
     out = session.run([output_name], {input_name: inp})[0]
     # softmax
     if out.ndim == 2 and out.shape[0] == 1:
@@ -1639,6 +1640,83 @@ def detect_bio_growth(hsv):
         boxes.append((x,y,w,h))
         cv2.drawContours(mask_out, [c], -1, 255, -1)
     return boxes, mask_out
+
+# ---------------------------
+# 训练好的分类模型
+# ---------------------------
+@st.cache_resource
+def load_trained_classifier():
+    """加载训练好的壁画病害分类模型"""
+    try:
+        import pickle
+        model_path = "simple_models/mural_classifier.pkl"
+        if os.path.exists(model_path):
+            with open(model_path, 'rb') as f:
+                model = pickle.load(f)
+            return model
+        else:
+            st.warning("训练好的分类模型不存在，请先运行训练脚本")
+            return None
+    except Exception as e:
+        st.error(f"加载分类模型失败: {e}")
+        return None
+
+def extract_simple_features(image):
+    """提取简单特征（与训练时一致）"""
+    # 转换为numpy数组
+    img_array = np.array(image)
+    
+    features = []
+    
+    # RGB通道统计
+    for channel in range(3):
+        channel_data = img_array[:, :, channel].flatten()
+        features.extend([
+            np.mean(channel_data),
+            np.std(channel_data)
+        ])
+    
+    # 灰度统计
+    gray = np.mean(img_array, axis=2)
+    features.extend([
+        np.mean(gray),
+        np.std(gray)
+    ])
+    
+    return features
+
+def predict_mural_disease(image_rgb, model):
+    """使用训练好的模型预测壁画病害"""
+    if model is None:
+        return None
+    
+    try:
+        # 转换为PIL图像
+        if isinstance(image_rgb, np.ndarray):
+            image = Image.fromarray(image_rgb)
+        else:
+            image = image_rgb
+        
+        # 提取特征
+        features = extract_simple_features(image)
+        features = np.array(features).reshape(1, -1)
+        
+        # 预测
+        prediction = model.predict(features)[0]
+        probabilities = model.predict_proba(features)[0]
+        
+        # 类别名称
+        class_names = ["crack", "peel", "disc", "clean"]
+        
+        return {
+            'predicted_class': class_names[prediction],
+            'confidence': probabilities[prediction],
+            'all_probabilities': dict(zip(class_names, probabilities))
+        }
+        
+    except Exception as e:
+        st.error(f"预测失败: {e}")
+        return None
 
 # ---------------------------
 # Deep model inference (ONNX)
@@ -1855,6 +1933,50 @@ if uploaded is not None and analyze_btn:
                 st.warning(f"自动材质识别失败：{e}")
 
         st.image(img_rgb, width='stretch')
+
+        # 训练好的分类模型预测
+        st.markdown("### 🤖 AI智能分类预测")
+        classifier_model = load_trained_classifier()
+        if classifier_model is not None:
+            with st.spinner("AI模型正在分析图像..."):
+                prediction_result = predict_mural_disease(img_rgb, classifier_model)
+            
+            if prediction_result:
+                predicted_class = prediction_result['predicted_class']
+                confidence = prediction_result['confidence']
+                all_probs = prediction_result['all_probabilities']
+                
+                # 显示预测结果
+                class_display_names = {
+                    "crack": "裂缝病害",
+                    "peel": "剥落病害", 
+                    "disc": "脱落缺损",
+                    "clean": "完好壁画"
+                }
+                
+                st.success(f"🎯 AI预测结果: **{class_display_names[predicted_class]}** (置信度: {confidence:.2%})")
+                
+                # 显示各类别概率
+                prob_cols = st.columns(4)
+                for i, (class_name, prob) in enumerate(all_probs.items()):
+                    with prob_cols[i]:
+                        st.metric(
+                            class_display_names[class_name],
+                            f"{prob:.1%}",
+                            delta=f"{prob-confidence:.1%}" if class_name != predicted_class else None
+                        )
+                
+                # 根据预测结果给出建议
+                if predicted_class == "clean":
+                    st.info("✅ 图像显示壁画状态良好，建议定期监测")
+                elif predicted_class == "crack":
+                    st.warning("⚠️ 检测到裂缝病害，建议进行结构稳定性评估")
+                elif predicted_class == "peel":
+                    st.warning("⚠️ 检测到剥落病害，建议检查环境湿度和温度")
+                elif predicted_class == "disc":
+                    st.error("❌ 检测到脱落缺损，建议立即采取保护措施")
+        else:
+            st.info("💡 提示：运行 `python simple_train.py` 可以训练AI分类模型")
 
         # OCR 识别（可选）
         st.markdown("### 🔤 文字识别（OCR）")
