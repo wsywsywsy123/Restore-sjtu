@@ -1051,6 +1051,79 @@ def get_rapidocr_cached():
 # ---------------------------
 # Helpers: render inpainting UI
 # ---------------------------
+# 深度学习系统
+# ---------------------------
+if DEEP_LEARNING_AVAILABLE:
+    class MuralDataset(Dataset):
+        """壁画病害数据集"""
+        def __init__(self, images, labels, transform=None):
+            self.images = images
+            self.labels = labels
+            self.transform = transform
+        
+        def __len__(self):
+            return len(self.images)
+        
+        def __getitem__(self, idx):
+            image = self.images[idx]
+            label = self.labels[idx]
+            
+            if self.transform:
+                image = self.transform(image)
+            
+            return image, label
+
+    class DefectClassifier(nn.Module):
+        """病害分类器"""
+        def __init__(self, num_classes=6, pretrained=True):
+            super(DefectClassifier, self).__init__()
+            
+            # 使用预训练的ResNet作为骨干网络
+            self.backbone = torchvision.models.resnet50(pretrained=pretrained)
+            num_features = self.backbone.fc.in_features
+            
+            # 替换最后的全连接层
+            self.backbone.fc = nn.Sequential(
+                nn.Dropout(0.5),
+                nn.Linear(num_features, 512),
+                nn.ReLU(),
+                nn.Dropout(0.3),
+                nn.Linear(512, num_classes)
+            )
+        
+        def forward(self, x):
+            return self.backbone(x)
+
+    class DataAugmentation:
+        """数据增强"""
+        def __init__(self):
+            self.transform = A.Compose([
+                A.HorizontalFlip(p=0.5),
+                A.VerticalFlip(p=0.3),
+                A.Rotate(limit=15, p=0.5),
+                A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.5),
+                A.GaussNoise(var_limit=(10.0, 50.0), p=0.3),
+                A.Blur(blur_limit=3, p=0.3),
+                A.RandomCrop(height=224, width=224, p=0.8),
+                A.Resize(height=224, width=224),
+                A.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+                ToTensorV2()
+            ])
+        
+        def __call__(self, image):
+            return self.transform(image=image)['image']
+    # 全局深度学习系统实例
+    @st.cache_resource
+    def get_model_trainer():
+        return ModelTrainer
+
+    @st.cache_resource
+    def get_data_augmentation():
+        return DataAugmentation()
+
+    @st.cache_resource
+    def get_transfer_learning():
+        return TransferLearning()
 def render_inpainting_ui(img_rgb, mask_crack, mask_peel, mask_disc, mask_stain, mask_salt, mask_bio, default_open=True, key_suffix=""):
     st.markdown("### 🧩 图像复原（试验性 Inpainting）")
     with st.expander("展开/收起", expanded=default_open):
