@@ -13,13 +13,84 @@ from reportlab.lib.units import mm
 import base64
 import os
 import sys
+import shutil
+import json
+import subprocess
+from pathlib import Path
+
+# 全局常量定义
+DISEASE_CATEGORIES = {
+    "crack": "裂缝病害",
+    "peel": "剥落病害", 
+    "disc": "脱落缺损",
+    "discoloration": "变色病害",
+    "stain_mold": "污渍霉斑",
+    "salt_weathering": "盐蚀风化",
+    "bio_growth": "生物附着",
+    "clean": "完好壁画"
+}
+
+# 材料类型
+MATERIAL_OPTIONS = ["石灰岩", "砂岩", "泥岩", "砖石", "石膏", "颜料层", "灰泥层", "未指定"]
+
+# 公共工具函数
+@st.cache_data(ttl=60)  # 缓存1分钟
+def get_upload_stats():
+    """获取上传统计信息"""
+    upload_dir = Path("user_uploads")
+    upload_dir.mkdir(exist_ok=True)
+    
+    stats = {}
+    total = 0
+    for category in DISEASE_CATEGORIES.keys():
+        category_dir = upload_dir / category
+        count = len(list(category_dir.glob("*.jpg")) + list(category_dir.glob("*.png")) + list(category_dir.glob("*.jpeg")))
+        stats[category] = count
+        total += count
+    
+    return stats, total
+
+def save_annotation(image_rgb, category_key, description, upload_dir):
+    """保存图片标注"""
+    try:
+        # 生成文件名
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"{category_key}_{timestamp}_annotated.jpg"
+        
+        # 保存图片
+        category_dir = upload_dir / category_key
+        category_dir.mkdir(exist_ok=True)
+        file_path = category_dir / filename
+        
+        # 将当前图片保存为JPG
+        img_pil = Image.fromarray(image_rgb)
+        img_pil.save(file_path, "JPEG", quality=95)
+        
+        # 保存标注信息
+        annotation_file = upload_dir / "annotations.json"
+        annotations = {}
+        if annotation_file.exists():
+            with open(annotation_file, 'r', encoding='utf-8') as f:
+                annotations = json.load(f)
+        
+        annotation_id = f"{category_key}_{timestamp}"
+        annotations[annotation_id] = {
+            "filename": filename,
+            "category": category_key,
+            "description": description,
+            "upload_time": timestamp,
+            "file_path": str(file_path.relative_to(upload_dir))
+        }
+        
+        with open(annotation_file, 'w', encoding='utf-8') as f:
+            json.dump(annotations, f, ensure_ascii=False, indent=2)
+        
+        return True, filename
+    except Exception as e:
+        return False, str(e)
 
 # 深度学习相关导入
 try:
-    # 修复Windows上的PyTorch DLL路径问题
-    import os
-    import sys
-    
     # 设置环境变量来避免DLL路径问题
     os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
     os.environ['OMP_NUM_THREADS'] = '1'
@@ -1084,73 +1155,6 @@ def get_rapidocr_cached():
 # ---------------------------
 # Helpers: render inpainting UI
 # ---------------------------
-def render_inpainting_ui(img_rgb, mask_crack, mask_peel, mask_disc, mask_stain, mask_salt, mask_bio, default_open=True, key_suffix=""):
-    st.markdown("### 🧩 图像复原（试验性 Inpainting）")
-    with st.expander("展开/收起", expanded=default_open):
-        
-        def __len__(self):
-            return len(self.images)
-        
-        def __getitem__(self, idx):
-            image = self.images[idx]
-            label = self.labels[idx]
-            
-            if self.transform:
-                image = self.transform(image)
-            
-            return image, label
-
-    class DefectClassifier(nn.Module):
-        """病害分类器"""
-        def __init__(self, num_classes=6, pretrained=True):
-            super(DefectClassifier, self).__init__()
-            
-            # 使用预训练的ResNet作为骨干网络
-            self.backbone = torchvision.models.resnet50(pretrained=pretrained)
-            num_features = self.backbone.fc.in_features
-            
-            # 替换最后的全连接层
-            self.backbone.fc = nn.Sequential(
-                nn.Dropout(0.5),
-                nn.Linear(num_features, 512),
-                nn.ReLU(),
-                nn.Dropout(0.3),
-                nn.Linear(512, num_classes)
-            )
-        
-        def forward(self, x):
-            return self.backbone(x)
-
-    class DataAugmentation:
-        """数据增强"""
-        def __init__(self):
-            self.transform = A.Compose([
-                A.HorizontalFlip(p=0.5),
-                A.VerticalFlip(p=0.3),
-                A.Rotate(limit=15, p=0.5),
-                A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.5),
-                A.GaussNoise(var_limit=(10.0, 50.0), p=0.3),
-                A.Blur(blur_limit=3, p=0.3),
-                A.RandomCrop(height=224, width=224, p=0.8),
-                A.Resize(height=224, width=224),
-                A.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-                ToTensorV2()
-            ])
-        
-        def __call__(self, image):
-            return self.transform(image=image)['image']
-    # 全局深度学习系统实例
-    @st.cache_resource
-    def get_model_trainer():
-        return ModelTrainer
-
-    @st.cache_resource
-    def get_data_augmentation():
-        return DataAugmentation()
-
-    @st.cache_resource
-    def get_transfer_learning():
-        return TransferLearning()
 def render_inpainting_ui(img_rgb, mask_crack, mask_peel, mask_disc, mask_stain, mask_salt, mask_bio, default_open=True, key_suffix=""):
     st.markdown("### 🧩 图像复原（试验性 Inpainting）")
     with st.expander("展开/收起", expanded=default_open):
@@ -3121,15 +3125,9 @@ with tabs[4]:
 # footer
 _logo_footer = get_logo_b64()
 _logo_html = f"<img src='{_logo_footer}' alt='SJTU Design' style='height:24px;vertical-align:middle;margin-right:12px;'/>" if _logo_footer else ""
-st.markdown(f"""
-<div class="footer-content">
-    <div style="display:flex;align-items:center;justify-content:center;gap:12px;flex-wrap:wrap;">
-        {_logo_html}
-        <div style="text-align:center;color:#2c3e50;font-weight:500;">
-            <div style="font-size:16px;margin-bottom:4px;">© {datetime.now().year} 上海交通大学设计学院文物修复团队</div>
-            <div style="font-size:14px;color:#7f8c8d;">AI+文物保护研究</div>
-        </div>
-    </div>
+st.markdown("""
+<div style="margin-top: 50px; text-align: center; padding: 20px;">
+    © 2025 上海交通大学设计学院文物修复团队|AI+文物保护研究
 </div>
 """, unsafe_allow_html=True)
 
@@ -3258,3 +3256,152 @@ if st.session_state.get("proc") is not None and (uploaded is None or not analyze
     # Global inpainting (works with cached results)
     # ---------------------
     render_inpainting_ui(img_rgb, mask_crack, mask_peel, mask_disc, mask_stain, mask_salt, mask_bio, default_open=True, key_suffix="cached")
+    
+    # ---------------------
+    # 图片标注和训练功能
+    # ---------------------
+    with st.expander("📸 图片标注和AI训练", expanded=False):
+        st.markdown("### 帮助改进AI模型")
+        st.info("💡 如果您认为AI分析结果不准确，可以标注这张图片来帮助改进模型")
+        
+        # 病害类别选择
+        categories = DISEASE_CATEGORIES
+        
+        col1, col2 = st.columns([2, 1])
+        
+        with col1:
+            # 选择真实病害类型
+            true_category = st.selectbox(
+                "这张图片的真实病害类型是：",
+                options=list(categories.values()),
+                help="请根据您的专业知识选择最准确的病害类型"
+            )
+            
+            # 描述信息
+            description = st.text_area(
+                "病害描述（可选）",
+                placeholder="请描述图片中的病害特征、严重程度、环境条件等信息...",
+                help="详细的描述有助于提高模型训练效果"
+            )
+        
+        with col2:
+            # 显示当前统计
+            stats, total = get_upload_stats()
+            
+            st.metric("已标注图片", total)
+            st.metric("裂缝病害", stats['crack'])
+            st.metric("剥落病害", stats['peel'])
+            st.metric("完好壁画", stats['clean'])
+        
+        # 标注按钮
+        if st.button("📝 标注这张图片", type="primary"):
+            # 获取类别键
+            category_key = [k for k, v in categories.items() if v == true_category][0]
+            upload_dir = Path("user_uploads")
+            
+            success, result = save_annotation(img_rgb, category_key, description, upload_dir)
+            if success:
+                st.success(f"✅ 图片标注成功！已保存为 {result}")
+                st.rerun()
+            else:
+                st.error(f"❌ 标注失败: {result}")
+        
+        # 训练数据管理
+        if total > 0:
+            st.markdown("### 训练数据管理")
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                if st.button("📊 导出标注数据"):
+                    # 收集所有标注数据
+                    annotation_file = upload_dir / "annotations.json"
+                    if annotation_file.exists():
+                        with open(annotation_file, 'r', encoding='utf-8') as f:
+                            annotations = json.load(f)
+                        
+                        data = []
+                        for ann_id, ann_data in annotations.items():
+                            data.append({
+                                "文件名": ann_data["filename"],
+                                "类别": categories.get(ann_data["category"], ann_data["category"]),
+                                "描述": ann_data.get("description", ""),
+                                "上传时间": ann_data["upload_time"]
+                            })
+                        
+                        df = pd.DataFrame(data)
+                        csv_data = df.to_csv(index=False, encoding='utf-8-sig')
+                        st.download_button(
+                            label="下载CSV文件",
+                            data=csv_data,
+                            file_name=f"mural_annotations_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                            mime="text/csv"
+                        )
+            
+            with col2:
+                if st.button("🔄 准备训练数据"):
+                    with st.spinner("正在准备训练数据..."):
+                        # 创建扩充训练数据集
+                        expanded_dir = Path("expanded_training_dataset")
+                        expanded_dir.mkdir(exist_ok=True)
+                        
+                        # 创建子目录
+                        for split in ["train", "val", "test"]:
+                            (expanded_dir / split).mkdir(exist_ok=True)
+                            for category in categories.keys():
+                                (expanded_dir / split / category).mkdir(exist_ok=True)
+                        
+                        # 复制原有训练数据
+                        original_dir = Path("training_dataset")
+                        if original_dir.exists():
+                            for split in ["train", "val", "test"]:
+                                split_dir = original_dir / split
+                                if split_dir.exists():
+                                    for category in categories.keys():
+                                        category_dir = split_dir / category
+                                        if category_dir.exists():
+                                            target_dir = expanded_dir / split / category
+                                            for img_file in category_dir.glob("*"):
+                                                shutil.copy2(img_file, target_dir / img_file.name)
+                        
+                        # 添加用户标注的数据到训练集
+                        for category in categories.keys():
+                            category_dir = upload_dir / category
+                            if category_dir.exists():
+                                target_dir = expanded_dir / "train" / category
+                                for img_file in category_dir.glob("*"):
+                                    if img_file.is_file():
+                                        shutil.copy2(img_file, target_dir / f"user_{img_file.name}")
+                        
+                    st.success(f"✅ 训练数据已准备完成！输出目录: {expanded_dir}")
+            
+            with col3:
+                if st.button("🤖 重新训练模型"):
+                    st.info("💡 请运行以下命令重新训练模型：")
+                    st.code("python retrain_expanded_model.py", language="bash")
+                    
+                    if st.button("▶️ 开始训练", type="secondary"):
+                        with st.spinner("正在训练模型..."):
+                            try:
+                                result = subprocess.run(["python", "retrain_expanded_model.py"], 
+                                                      capture_output=True, text=True, timeout=300)
+                                if result.returncode == 0:
+                                    st.success("✅ 模型训练完成！")
+                                    st.text(result.stdout)
+                                else:
+                                    st.error("❌ 训练失败")
+                                    st.text(result.stderr)
+                            except subprocess.TimeoutExpired:
+                                st.error("❌ 训练超时，请检查数据量或增加超时时间")
+                            except FileNotFoundError:
+                                st.error("❌ 找不到训练脚本，请确保 retrain_expanded_model.py 文件存在")
+                            except Exception as e:
+                                st.error(f"❌ 训练出错: {e}")
+        
+        # 使用说明
+        st.markdown("### 📖 使用说明")
+        st.markdown("""
+        - **标注图片**：如果AI分析结果不准确，请选择正确的病害类型并添加描述
+        - **改进模型**：您的标注将用于重新训练AI模型，提高准确率
+        - **数据管理**：可以导出标注数据、准备训练数据、重新训练模型
+        - **专业建议**：请根据您的专业知识进行准确标注
+        """)
