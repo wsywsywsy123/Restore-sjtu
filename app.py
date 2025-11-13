@@ -1,3 +1,5 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
 # app.py
 import streamlit as st
 import cv2
@@ -13,84 +15,46 @@ from reportlab.lib.units import mm
 import base64
 import os
 import sys
-import shutil
-import json
-import subprocess
-from pathlib import Path
 
-# 全局常量定义
-DISEASE_CATEGORIES = {
-    "crack": "裂缝病害",
-    "peel": "剥落病害", 
-    "disc": "脱落缺损",
-    "discoloration": "变色病害",
-    "stain_mold": "污渍霉斑",
-    "salt_weathering": "盐蚀风化",
-    "bio_growth": "生物附着",
-    "clean": "完好壁画"
-}
+# 导入改进的检测算法和知识库
+try:
+    from improved_detection import (
+        detect_cracks_improved,
+        detect_peeling_improved,
+        detect_discoloration_improved,
+        detect_stain_mold_improved,
+        detect_salt_weathering_improved,
+        detect_bio_growth_improved
+    )
+    IMPROVED_DETECTION_AVAILABLE = True
+except ImportError:
+    IMPROVED_DETECTION_AVAILABLE = False
+    print("改进的检测算法不可用，将使用基础算法")
 
-# 材料类型
-MATERIAL_OPTIONS = ["石灰岩", "砂岩", "泥岩", "砖石", "石膏", "颜料层", "灰泥层", "未指定"]
+try:
+    from knowledge_base import KnowledgeBase, CaseLibrary
+    KNOWLEDGE_BASE_AVAILABLE = True
+except ImportError:
+    KNOWLEDGE_BASE_AVAILABLE = False
+    print("知识库模块不可用")
 
-# 公共工具函数
-@st.cache_data(ttl=60)  # 缓存1分钟
-def get_upload_stats():
-    """获取上传统计信息"""
-    upload_dir = Path("user_uploads")
-    upload_dir.mkdir(exist_ok=True)
-    
-    stats = {}
-    total = 0
-    for category in DISEASE_CATEGORIES.keys():
-        category_dir = upload_dir / category
-        count = len(list(category_dir.glob("*.jpg")) + list(category_dir.glob("*.png")) + list(category_dir.glob("*.jpeg")))
-        stats[category] = count
-        total += count
-    
-    return stats, total
-
-def save_annotation(image_rgb, category_key, description, upload_dir):
-    """保存图片标注"""
-    try:
-        # 生成文件名
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"{category_key}_{timestamp}_annotated.jpg"
-        
-        # 保存图片
-        category_dir = upload_dir / category_key
-        category_dir.mkdir(exist_ok=True)
-        file_path = category_dir / filename
-        
-        # 将当前图片保存为JPG
-        img_pil = Image.fromarray(image_rgb)
-        img_pil.save(file_path, "JPEG", quality=95)
-        
-        # 保存标注信息
-        annotation_file = upload_dir / "annotations.json"
-        annotations = {}
-        if annotation_file.exists():
-            with open(annotation_file, 'r', encoding='utf-8') as f:
-                annotations = json.load(f)
-        
-        annotation_id = f"{category_key}_{timestamp}"
-        annotations[annotation_id] = {
-            "filename": filename,
-            "category": category_key,
-            "description": description,
-            "upload_time": timestamp,
-            "file_path": str(file_path.relative_to(upload_dir))
-        }
-        
-        with open(annotation_file, 'w', encoding='utf-8') as f:
-            json.dump(annotations, f, ensure_ascii=False, indent=2)
-        
-        return True, filename
-    except Exception as e:
-        return False, str(e)
+try:
+    from advanced_restoration import (
+        AdvancedMuralRestoration,
+        VirtualRestorationSystem,
+        render_advanced_restoration_ui
+    )
+    ADVANCED_RESTORATION_AVAILABLE = True
+except ImportError:
+    ADVANCED_RESTORATION_AVAILABLE = False
+    print("高级复原模块不可用")
 
 # 深度学习相关导入
 try:
+    # 修复Windows上的PyTorch DLL路径问题
+    import os
+    import sys
+    
     # 设置环境变量来避免DLL路径问题
     os.environ['KMP_DUPLICATE_LIB_OK'] = 'TRUE'
     os.environ['OMP_NUM_THREADS'] = '1'
@@ -1158,6 +1122,73 @@ def get_rapidocr_cached():
 def render_inpainting_ui(img_rgb, mask_crack, mask_peel, mask_disc, mask_stain, mask_salt, mask_bio, default_open=True, key_suffix=""):
     st.markdown("### 🧩 图像复原（试验性 Inpainting）")
     with st.expander("展开/收起", expanded=default_open):
+        
+        def __len__(self):
+            return len(self.images)
+        
+        def __getitem__(self, idx):
+            image = self.images[idx]
+            label = self.labels[idx]
+            
+            if self.transform:
+                image = self.transform(image)
+            
+            return image, label
+
+    class DefectClassifier(nn.Module):
+        """病害分类器"""
+        def __init__(self, num_classes=6, pretrained=True):
+            super(DefectClassifier, self).__init__()
+            
+            # 使用预训练的ResNet作为骨干网络
+            self.backbone = torchvision.models.resnet50(pretrained=pretrained)
+            num_features = self.backbone.fc.in_features
+            
+            # 替换最后的全连接层
+            self.backbone.fc = nn.Sequential(
+                nn.Dropout(0.5),
+                nn.Linear(num_features, 512),
+                nn.ReLU(),
+                nn.Dropout(0.3),
+                nn.Linear(512, num_classes)
+            )
+        
+        def forward(self, x):
+            return self.backbone(x)
+
+    class DataAugmentation:
+        """数据增强"""
+        def __init__(self):
+            self.transform = A.Compose([
+                A.HorizontalFlip(p=0.5),
+                A.VerticalFlip(p=0.3),
+                A.Rotate(limit=15, p=0.5),
+                A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.5),
+                A.GaussNoise(var_limit=(10.0, 50.0), p=0.3),
+                A.Blur(blur_limit=3, p=0.3),
+                A.RandomCrop(height=224, width=224, p=0.8),
+                A.Resize(height=224, width=224),
+                A.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+                ToTensorV2()
+            ])
+        
+        def __call__(self, image):
+            return self.transform(image=image)['image']
+    # 全局深度学习系统实例
+    @st.cache_resource
+    def get_model_trainer():
+        return ModelTrainer
+
+    @st.cache_resource
+    def get_data_augmentation():
+        return DataAugmentation()
+
+    @st.cache_resource
+    def get_transfer_learning():
+        return TransferLearning()
+def render_inpainting_ui(img_rgb, mask_crack, mask_peel, mask_disc, mask_stain, mask_salt, mask_bio, default_open=True, key_suffix=""):
+    st.markdown("### 🧩 图像复原（试验性 Inpainting）")
+    with st.expander("展开/收起", expanded=default_open):
         sel_classes = st.multiselect(
             "选择需要复原的病害类别（将基于其掩膜进行修补）",
             ["裂缝","剥落","褪色","污渍/霉斑","盐蚀/风化","生物附着"],
@@ -1290,7 +1321,7 @@ def save_annotated_image_bytes(annotated_rgb):
 # ---------------------------
 # Material-specific parameters
 # ---------------------------
-MATERIAL_OPTIONS = [
+MATERIAL_OPTIONS = [  
     "未指定",
     "大足石刻（砂岩）",
     "云冈石窟（砂岩夹泥岩）",
@@ -1824,6 +1855,13 @@ if auto_material:
 use_deep = st.sidebar.checkbox("使用深度分割模型（ONNX）", value=False)
 model_path = None
 model_input_size = 512
+
+# 检测算法选择
+if IMPROVED_DETECTION_AVAILABLE:
+    use_improved_detection = st.sidebar.checkbox("使用改进的检测算法（更准确）", value=False)
+else:
+    use_improved_detection = False
+
 # 性能/速度设置
 st.sidebar.markdown("### 性能/速度设置")
 max_dim_setting = st.sidebar.slider("最大处理分辨率（像素）", 512, 2048, 1280, 64)
@@ -1896,7 +1934,7 @@ try:
     # 保留动态背景，不再注入固定浮动底栏
 except Exception:
     pass
-tabs = st.tabs(["二维壁画诊断", "三维石窟监测（基础版）", "文献资料识别（OCR）", "多模态融合诊断", "深度学习训练"])
+tabs = st.tabs(["二维壁画诊断", "三维石窟监测（基础版）", "文献资料识别（OCR）", "多模态融合诊断", "深度学习训练", "知识库", "案例库", "移动端采集"])
 
 with tabs[0]:
     st.markdown("#### 1) 上传图像（可上传 1-2 张用于时间对比）")
@@ -2033,12 +2071,22 @@ if uploaded is not None and analyze_btn:
         # Baseline CV detections
         gray = cv2.cvtColor(img_proc, cv2.COLOR_BGR2GRAY)
         hsv = cv2.cvtColor(img_proc, cv2.COLOR_BGR2HSV)
-        boxes_crack, mask_crack = detect_cracks(gray)
-        boxes_peel, mask_peel = detect_peeling(hsv)
-        boxes_disc, mask_disc = detect_discoloration(hsv)
-        boxes_stain, mask_stain = detect_stain_mold(hsv)
-        boxes_salt, mask_salt = detect_salt_weathering(hsv)
-        boxes_bio, mask_bio = detect_bio_growth(hsv)
+        
+        # 根据设置选择使用改进算法或基础算法
+        if use_improved_detection and IMPROVED_DETECTION_AVAILABLE:
+            boxes_crack, mask_crack = detect_cracks_improved(gray)
+            boxes_peel, mask_peel = detect_peeling_improved(hsv)
+            boxes_disc, mask_disc = detect_discoloration_improved(hsv)
+            boxes_stain, mask_stain = detect_stain_mold_improved(hsv)
+            boxes_salt, mask_salt = detect_salt_weathering_improved(hsv)
+            boxes_bio, mask_bio = detect_bio_growth_improved(hsv)
+        else:
+            boxes_crack, mask_crack = detect_cracks(gray)
+            boxes_peel, mask_peel = detect_peeling(hsv)
+            boxes_disc, mask_disc = detect_discoloration(hsv)
+            boxes_stain, mask_stain = detect_stain_mold(hsv)
+            boxes_salt, mask_salt = detect_salt_weathering(hsv)
+            boxes_bio, mask_bio = detect_bio_growth(hsv)
 
         # If deep_masks provided, prefer it
         if deep_masks:
@@ -3122,14 +3170,265 @@ with tabs[4]:
                 st.metric("内存占用", "128 MB")
                 st.metric("准确率", "94.2%")
 
+# 知识库标签页
+with tabs[5]:
+    st.markdown("## 📚 知识库")
+    if not KNOWLEDGE_BASE_AVAILABLE:
+        st.error("知识库模块不可用，请检查 knowledge_base.py 文件")
+    else:
+        kb = KnowledgeBase()
+        
+        tab_kb_search, tab_kb_add = st.tabs(["搜索知识", "添加知识"])
+        
+        with tab_kb_search:
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                search_keyword = st.text_input("搜索关键词", "", key="kb_search_keyword")
+            with col2:
+                search_category = st.selectbox("类别", ["全部", "病害知识", "修复方法", "材料特性", "检测技术", "其他"], key="kb_search_category")
+            
+            col3, col4 = st.columns(2)
+            with col3:
+                search_material = st.selectbox("材质类型", ["全部"] + MATERIAL_OPTIONS[1:], key="kb_search_material")
+            with col4:
+                search_disease = st.selectbox("病害类型", ["全部", "裂缝", "剥落", "褪色", "污渍/霉斑", "盐蚀/风化", "生物附着"], key="kb_search_disease")
+            
+            if st.button("搜索", type="primary", key="kb_search_btn"):
+                results = kb.search_knowledge(
+                    keyword=search_keyword if search_keyword else None,
+                    category=search_category if search_category != "全部" else None,
+                    material_type=search_material if search_material != "全部" else None,
+                    disease_type=search_disease if search_disease != "全部" else None
+                )
+                
+                if results:
+                    st.success(f"找到 {len(results)} 条知识")
+                    for item in results:
+                        with st.expander(f"📖 {item['title']} ({item['category']})"):
+                            st.write("**内容：**")
+                            st.write(item['content'])
+                            if item['tags']:
+                                st.write("**标签：**", ", ".join(item['tags']))
+                            st.caption(f"创建时间: {item['created_at']} | 浏览次数: {item['view_count']}")
+                else:
+                    st.info("未找到相关知识")
+        
+        with tab_kb_add:
+            st.markdown("### 添加新知识")
+            with st.form("add_knowledge_form"):
+                kb_title = st.text_input("标题 *", "", key="kb_add_title")
+                kb_category = st.selectbox("类别 *", ["病害知识", "修复方法", "材料特性", "检测技术", "其他"], key="kb_add_category")
+                kb_content = st.text_area("内容 *", height=200, key="kb_add_content")
+                kb_tags = st.text_input("标签（用逗号分隔）", "", key="kb_add_tags")
+                kb_material = st.selectbox("材质类型", ["无"] + MATERIAL_OPTIONS[1:], key="kb_add_material")
+                kb_disease = st.selectbox("病害类型", ["无", "裂缝", "剥落", "褪色", "污渍/霉斑", "盐蚀/风化", "生物附着"], key="kb_add_disease")
+                kb_author = st.text_input("作者", "", key="kb_add_author")
+                
+                if st.form_submit_button("提交", type="primary"):
+                    if kb_title and kb_content:
+                        tags_list = [t.strip() for t in kb_tags.split(",") if t.strip()] if kb_tags else None
+                        kb_id = kb.add_knowledge(
+                            title=kb_title,
+                            category=kb_category,
+                            content=kb_content,
+                            tags=tags_list,
+                            material_type=kb_material if kb_material != "无" else None,
+                            disease_type=kb_disease if kb_disease != "无" else None,
+                            author=kb_author if kb_author else None
+                        )
+                        st.success(f"知识添加成功！ID: {kb_id}")
+                    else:
+                        st.error("请填写标题和内容")
+
+# 案例库标签页
+with tabs[6]:
+    st.markdown("## 📋 案例库")
+    if not KNOWLEDGE_BASE_AVAILABLE:
+        st.error("案例库模块不可用，请检查 knowledge_base.py 文件")
+    else:
+        case_lib = CaseLibrary()
+        
+        tab_case_search, tab_case_add = st.tabs(["搜索案例", "添加案例"])
+        
+        with tab_case_search:
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                case_keyword = st.text_input("搜索关键词", "", key="case_search_keyword")
+            with col2:
+                case_material = st.selectbox("材质类型", ["全部"] + MATERIAL_OPTIONS[1:], key="case_search_material")
+            
+            col3, col4 = st.columns(2)
+            with col3:
+                case_disease = st.selectbox("病害类型", ["全部", "裂缝", "剥落", "褪色", "污渍/霉斑", "盐蚀/风化", "生物附着"], key="case_search_disease")
+            with col4:
+                case_severity = st.selectbox("严重程度", ["全部", "轻微", "中等", "严重"], key="case_search_severity")
+            
+            if st.button("搜索案例", type="primary", key="case_search_btn"):
+                results = case_lib.search_cases(
+                    keyword=case_keyword if case_keyword else None,
+                    material_type=case_material if case_material != "全部" else None,
+                    disease_type=case_disease if case_disease != "全部" else None,
+                    severity_level=case_severity if case_severity != "全部" else None
+                )
+                
+                if results:
+                    st.success(f"找到 {len(results)} 个案例")
+                    for case in results:
+                        with st.expander(f"📁 {case['title']} - {case.get('location', '未知位置')}"):
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                st.write("**材质：**", case.get('material_type', '未知'))
+                                st.write("**年代：**", case.get('era', '未知'))
+                                st.write("**病害类型：**", ", ".join(case.get('disease_types', [])))
+                            with col2:
+                                st.write("**严重程度：**", case.get('severity_level', '未知'))
+                                st.write("**创建时间：**", case['created_at'])
+                                st.write("**浏览次数：**", case['view_count'])
+                            
+                            if case.get('description'):
+                                st.write("**描述：**", case['description'])
+                            
+                            if case.get('diagnosis_result'):
+                                with st.expander("📋 诊断结果", expanded=False):
+                                    st.markdown(case['diagnosis_result'])
+                            
+                            if case.get('treatment_plan'):
+                                with st.expander("🔧 修复方案", expanded=False):
+                                    st.markdown(case['treatment_plan'])
+                            
+                            if case.get('treatment_result'):
+                                with st.expander("✅ 修复结果", expanded=False):
+                                    st.markdown(case['treatment_result'])
+                            
+                            # 显示作者信息
+                            if case.get('author'):
+                                st.caption(f"📝 提交人：{case['author']}")
+                            
+                            # 显示标签
+                            if case.get('tags'):
+                                tags_display = " ".join([f"`{tag}`" for tag in case['tags']])
+                                st.markdown(f"**标签：** {tags_display}")
+                            
+                            if case.get('before_images'):
+                                st.write("**修复前图片：**")
+                                col_img1, col_img2, col_img3 = st.columns(3)
+                                for i, img_path in enumerate(case['before_images'][:3]):  # 最多显示3张
+                                    if os.path.exists(img_path):
+                                        with [col_img1, col_img2, col_img3][i]:
+                                            st.image(img_path, use_container_width=True)
+                                            
+                            if case.get('after_images'):
+                                st.write("**修复后图片：**")
+                                col_img1, col_img2, col_img3 = st.columns(3)
+                                for i, img_path in enumerate(case['after_images'][:3]):  # 最多显示3张
+                                    if os.path.exists(img_path):
+                                        with [col_img1, col_img2, col_img3][i]:
+                                            st.image(img_path, use_container_width=True)
+                else:
+                    st.info("未找到相关案例")
+        
+        with tab_case_add:
+            st.markdown("### 添加新案例")
+            with st.form("add_case_form"):
+                case_title = st.text_input("案例标题 *", "", key="case_add_title")
+                case_location = st.text_input("位置", "", key="case_add_location")
+                case_material = st.selectbox("材质类型", ["无"] + MATERIAL_OPTIONS[1:], key="case_add_material")
+                case_era = st.text_input("年代", "", key="case_add_era")
+                case_diseases = st.multiselect("病害类型", ["裂缝", "剥落", "褪色", "污渍/霉斑", "盐蚀/风化", "生物附着"], key="case_add_diseases")
+                case_severity = st.selectbox("严重程度", ["轻微", "中等", "严重"], key="case_add_severity")
+                case_description = st.text_area("案例描述", height=150, key="case_add_description")
+                case_diagnosis = st.text_area("诊断结果", height=100, key="case_add_diagnosis")
+                case_treatment = st.text_area("修复方案", height=100, key="case_add_treatment")
+                case_treatment_result = st.text_area("修复结果", height=100, key="case_add_treatment_result")
+                
+                st.markdown("**图片上传**")
+                case_before_images = st.file_uploader("修复前图片", type=['jpg', 'jpeg', 'png'], accept_multiple_files=True, key="case_add_before_images")
+                case_after_images = st.file_uploader("修复后图片", type=['jpg', 'jpeg', 'png'], accept_multiple_files=True, key="case_add_after_images")
+                case_process_images = st.file_uploader("修复过程图片", type=['jpg', 'jpeg', 'png'], accept_multiple_files=True, key="case_add_process_images")
+                
+                case_author = st.text_input("提交人", "", key="case_add_author")
+                
+                if st.form_submit_button("提交案例", type="primary"):
+                    if case_title:
+                        before_imgs = [img.read() for img in case_before_images] if case_before_images else None
+                        after_imgs = [img.read() for img in case_after_images] if case_after_images else None
+                        process_imgs = [img.read() for img in case_process_images] if case_process_images else None
+                        
+                        case_id = case_lib.add_case(
+                            title=case_title,
+                            location=case_location if case_location else None,
+                            material_type=case_material if case_material != "无" else None,
+                            era=case_era if case_era else None,
+                            disease_types=case_diseases if case_diseases else None,
+                            severity_level=case_severity,
+                            description=case_description if case_description else None,
+                            diagnosis_result=case_diagnosis if case_diagnosis else None,
+                            treatment_plan=case_treatment if case_treatment else None,
+                            treatment_result=case_treatment_result if case_treatment_result else None,
+                            before_images=before_imgs,
+                            after_images=after_imgs,
+                            process_images=process_imgs,
+                            author=case_author if case_author else None
+                        )
+                        st.success(f"案例添加成功！ID: {case_id}")
+                    else:
+                        st.error("请填写案例标题")
+
+# 移动端采集标签页
+with tabs[7]:
+    st.markdown("## 📱 移动端数据采集")
+    st.info("""
+    **移动端采集功能说明：**
+    
+    1. 启动移动端API服务：运行 `python mobile_collection_api.py`
+    2. API地址：`http://your-server-ip:8001`
+    3. 移动端可以通过API上传图片、位置信息、病害标注等数据
+    4. 支持GPS定位、设备信息记录、批量上传等功能
+    """)
+    
+    st.markdown("### API接口文档")
+    
+    with st.expander("📤 上传采集数据"):
+        st.code("""
+POST /api/mobile/upload
+Content-Type: multipart/form-data
+
+参数：
+- file: 图片文件
+- device_id: 设备ID
+- device_info: 设备信息（可选）
+- location_lat: 纬度（可选）
+- location_lng: 经度（可选）
+- location_name: 位置名称（可选）
+- disease_types: 病害类型JSON数组（可选）
+- severity_level: 严重程度（可选）
+- material_type: 材质类型（可选）
+- notes: 备注（可选）
+        """)
+    
+    with st.expander("📋 获取采集列表"):
+        st.code("""
+GET /api/mobile/collections?device_id=xxx&limit=50&offset=0
+        """)
+    
+    with st.expander("📄 获取采集详情"):
+        st.code("""
+GET /api/mobile/collection/{collection_id}
+        """)
+    
+    with st.expander("📊 获取统计信息"):
+        st.code("""
+GET /api/mobile/stats?device_id=xxx
+        """)
+    
+    st.markdown("### 采集数据查看")
+    if st.button("刷新采集数据", key="mobile_refresh_btn"):
+        st.rerun()
+    
+    st.markdown("**提示：** 需要启动移动端API服务才能查看采集数据")
+
 # footer
-_logo_footer = get_logo_b64()
-_logo_html = f"<img src='{_logo_footer}' alt='SJTU Design' style='height:24px;vertical-align:middle;margin-right:12px;'/>" if _logo_footer else ""
-st.markdown("""
-<div style="margin-top: 50px; text-align: center; padding: 20px;">
-    © 2025 上海交通大学设计学院文物修复团队|AI+文物保护研究
-</div>
-""", unsafe_allow_html=True)
+st.markdown(f"<div style='text-align:center;color:#666;margin-top:32px;'>© {datetime.now().year} 上海交通大学设计学院文物修复团队</div>", unsafe_allow_html=True)
 
 # If cached results exist, allow re-render with current toggles without re-uploading
 if st.session_state.get("proc") is not None and (uploaded is None or not analyze_btn):
@@ -3258,150 +3557,18 @@ if st.session_state.get("proc") is not None and (uploaded is None or not analyze
     render_inpainting_ui(img_rgb, mask_crack, mask_peel, mask_disc, mask_stain, mask_salt, mask_bio, default_open=True, key_suffix="cached")
     
     # ---------------------
-    # 图片标注和训练功能
+    # Advanced restoration system (works with cached results)
     # ---------------------
-    with st.expander("📸 图片标注和AI训练", expanded=False):
-        st.markdown("### 帮助改进AI模型")
-        st.info("💡 如果您认为AI分析结果不准确，可以标注这张图片来帮助改进模型")
-        
-        # 病害类别选择
-        categories = DISEASE_CATEGORIES
-        
-        col1, col2 = st.columns([2, 1])
-        
-        with col1:
-            # 选择真实病害类型
-            true_category = st.selectbox(
-                "这张图片的真实病害类型是：",
-                options=list(categories.values()),
-                help="请根据您的专业知识选择最准确的病害类型"
-            )
-            
-            # 描述信息
-            description = st.text_area(
-                "病害描述（可选）",
-                placeholder="请描述图片中的病害特征、严重程度、环境条件等信息...",
-                help="详细的描述有助于提高模型训练效果"
-            )
-        
-        with col2:
-            # 显示当前统计
-            stats, total = get_upload_stats()
-            
-            st.metric("已标注图片", total)
-            st.metric("裂缝病害", stats['crack'])
-            st.metric("剥落病害", stats['peel'])
-            st.metric("完好壁画", stats['clean'])
-        
-        # 标注按钮
-        if st.button("📝 标注这张图片", type="primary"):
-            # 获取类别键
-            category_key = [k for k, v in categories.items() if v == true_category][0]
-            upload_dir = Path("user_uploads")
-            
-            success, result = save_annotation(img_rgb, category_key, description, upload_dir)
-            if success:
-                st.success(f"✅ 图片标注成功！已保存为 {result}")
-                st.rerun()
-            else:
-                st.error(f"❌ 标注失败: {result}")
-        
-        # 训练数据管理
-        if total > 0:
-            st.markdown("### 训练数据管理")
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                if st.button("📊 导出标注数据"):
-                    # 收集所有标注数据
-                    annotation_file = upload_dir / "annotations.json"
-                    if annotation_file.exists():
-                        with open(annotation_file, 'r', encoding='utf-8') as f:
-                            annotations = json.load(f)
-                        
-                        data = []
-                        for ann_id, ann_data in annotations.items():
-                            data.append({
-                                "文件名": ann_data["filename"],
-                                "类别": categories.get(ann_data["category"], ann_data["category"]),
-                                "描述": ann_data.get("description", ""),
-                                "上传时间": ann_data["upload_time"]
-                            })
-                        
-                        df = pd.DataFrame(data)
-                        csv_data = df.to_csv(index=False, encoding='utf-8-sig')
-                        st.download_button(
-                            label="下载CSV文件",
-                            data=csv_data,
-                            file_name=f"mural_annotations_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                            mime="text/csv"
-                        )
-            
-            with col2:
-                if st.button("🔄 准备训练数据"):
-                    with st.spinner("正在准备训练数据..."):
-                        # 创建扩充训练数据集
-                        expanded_dir = Path("expanded_training_dataset")
-                        expanded_dir.mkdir(exist_ok=True)
-                        
-                        # 创建子目录
-                        for split in ["train", "val", "test"]:
-                            (expanded_dir / split).mkdir(exist_ok=True)
-                            for category in categories.keys():
-                                (expanded_dir / split / category).mkdir(exist_ok=True)
-                        
-                        # 复制原有训练数据
-                        original_dir = Path("training_dataset")
-                        if original_dir.exists():
-                            for split in ["train", "val", "test"]:
-                                split_dir = original_dir / split
-                                if split_dir.exists():
-                                    for category in categories.keys():
-                                        category_dir = split_dir / category
-                                        if category_dir.exists():
-                                            target_dir = expanded_dir / split / category
-                                            for img_file in category_dir.glob("*"):
-                                                shutil.copy2(img_file, target_dir / img_file.name)
-                        
-                        # 添加用户标注的数据到训练集
-                        for category in categories.keys():
-                            category_dir = upload_dir / category
-                            if category_dir.exists():
-                                target_dir = expanded_dir / "train" / category
-                                for img_file in category_dir.glob("*"):
-                                    if img_file.is_file():
-                                        shutil.copy2(img_file, target_dir / f"user_{img_file.name}")
-                        
-                    st.success(f"✅ 训练数据已准备完成！输出目录: {expanded_dir}")
-            
-            with col3:
-                if st.button("🤖 重新训练模型"):
-                    st.info("💡 请运行以下命令重新训练模型：")
-                    st.code("python retrain_expanded_model.py", language="bash")
-                    
-                    if st.button("▶️ 开始训练", type="secondary"):
-                        with st.spinner("正在训练模型..."):
-                            try:
-                                result = subprocess.run(["python", "retrain_expanded_model.py"], 
-                                                      capture_output=True, text=True, timeout=300)
-                                if result.returncode == 0:
-                                    st.success("✅ 模型训练完成！")
-                                    st.text(result.stdout)
-                                else:
-                                    st.error("❌ 训练失败")
-                                    st.text(result.stderr)
-                            except subprocess.TimeoutExpired:
-                                st.error("❌ 训练超时，请检查数据量或增加超时时间")
-                            except FileNotFoundError:
-                                st.error("❌ 找不到训练脚本，请确保 retrain_expanded_model.py 文件存在")
-                            except Exception as e:
-                                st.error(f"❌ 训练出错: {e}")
-        
-        # 使用说明
-        st.markdown("### 📖 使用说明")
-        st.markdown("""
-        - **标注图片**：如果AI分析结果不准确，请选择正确的病害类型并添加描述
-        - **改进模型**：您的标注将用于重新训练AI模型，提高准确率
-        - **数据管理**：可以导出标注数据、准备训练数据、重新训练模型
-        - **专业建议**：请根据您的专业知识进行准确标注
-        """)
+    if ADVANCED_RESTORATION_AVAILABLE:
+        st.markdown("---")
+        masks_dict = {
+            'crack': mask_crack,
+            'peel': mask_peel,
+            'disc': mask_disc,
+            'stain': mask_stain,
+            'salt': mask_salt,
+            'bio': mask_bio
+        }
+        render_advanced_restoration_ui(img_rgb, masks_dict, default_open=False)
+    else:
+        st.info("💡 提示：高级复原功能需要 advanced_restoration.py 模块")

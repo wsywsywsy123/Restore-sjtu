@@ -1,0 +1,29 @@
+name: Deploy to Streamlit Cloud
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Test application
+      run: |
+        python -c "import streamlit; print('Streamlit imported successfully')"
+        python -c "import cv2; print('OpenCV imported successfully')"
+        python -c "import numpy; print('NumPy imported successfully')"
