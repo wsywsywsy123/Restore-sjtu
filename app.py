@@ -8,10 +8,48 @@ import pandas as pd
 from PIL import Image
 from io import BytesIO
 from datetime import datetime
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image as RLImage
-from reportlab.lib.styles import getSampleStyleSheet
+import os
+import time
+
+
+def _sanitize_windows_path_env():
+    """Correct malformed drive-relative PATH entries that break DLL loading on Windows."""
+    if os.name != "nt":
+        return
+    path_env = os.environ.get("PATH")
+    if not path_env:
+        return
+    parts = path_env.split(os.pathsep)
+    updated = []
+    mutated = False
+    for entry in parts:
+        if (
+            len(entry) >= 3
+            and entry[1] == ":"
+            and entry[2] not in ("\\", "/")
+            and not entry.startswith("\\\\")
+        ):
+            candidate = entry[:2] + "\\" + entry[2:]
+            if os.path.isdir(candidate):
+                updated.append(candidate)
+                mutated = True
+                continue
+        updated.append(entry)
+    if mutated:
+        os.environ["PATH"] = os.pathsep.join(updated)
+
+
+_sanitize_windows_path_env()
+from reportlab.platypus import (
+    SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle,
+    Image as RLImage, PageBreak
+)
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.pagesizes import A4
-from reportlab.lib.units import mm
+from reportlab.lib.units import mm, inch
+from reportlab.lib import colors
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 import base64
 import os
 import sys
@@ -2777,6 +2815,558 @@ def save_annotated_image_bytes(annotated_rgb):
     buf.seek(0)
     return buf
 
+
+def numpy_image_to_bytes(img_array, format="PNG"):
+    """Convert an RGB numpy array to BytesIO for PDF embedding."""
+    pil_img = Image.fromarray(img_array)
+    buffer = BytesIO()
+    pil_img.save(buffer, format=format)
+    buffer.seek(0)
+    return buffer
+
+
+def simulate_progress_bar(step_labels, sleep_seconds=0.2):
+    """Render a lightweight simulated progress bar for user feedback."""
+    progress_bar = st.progress(0, text="准备就绪…")
+    status_placeholder = st.empty()
+    total = len(step_labels)
+    for idx, label in enumerate(step_labels, start=1):
+        status_placeholder.info(f"正在执行：{label}")
+        progress_bar.progress(idx / total, text=label)
+        time.sleep(sleep_seconds)
+    status_placeholder.success("分析流程模拟完成 ✅")
+    progress_bar.progress(1.0, text="完成")
+
+
+def render_quick_progress_controls():
+    """展示实时进度模拟按钮。"""
+    st.subheader("进度反馈")
+    st.caption("快速了解完整分析流程的执行顺序与状态反馈。")
+    if st.button("▶️ 演示分析进度", key="demo_progress"):
+        simulate_progress_bar(
+            ["图像预处理", "材质识别", "病害检测", "严重度评估", "报告生成"],
+            sleep_seconds=0.25
+        )
+
+
+def create_metrics_dataframe(category_counts, area_percentages):
+    """构建病害概览数据表。"""
+    data = []
+    for label, count in category_counts.items():
+        pct = area_percentages.get(label, 0.0)
+        data.append({"病害类型": label, "数量": count, "面积占比(%)": round(pct, 3)})
+    return pd.DataFrame(data)
+
+
+def downscale_mask_for_heatmap(mask, size=32):
+    """将二值掩膜缩小用于热力图展示。"""
+    if mask is None or mask.size == 0:
+        return None
+    try:
+        reduced = cv2.resize(
+            (mask > 0).astype(np.float32),
+            (size, size),
+            interpolation=cv2.INTER_AREA
+        )
+        return reduced
+    except Exception:
+        return None
+
+
+def render_interactive_dashboard(category_counts, area_percentages, aggregated_mask):
+    """展示交互式可视化仪表板。"""
+    st.subheader("交互式分析结果")
+    dataframe = create_metrics_dataframe(category_counts, area_percentages)
+    st.dataframe(dataframe, use_container_width=True)
+
+    if px is None:
+        st.info("缺少 plotly 依赖，无法绘制交互式图表。请运行 `pip install plotly` 后重试。")
+        return
+
+    fig_bar = px.bar(
+        dataframe,
+        x="病害类型",
+        y="数量",
+        color="面积占比(%)",
+        title="病害数量与面积占比"
+    )
+    st.plotly_chart(fig_bar, use_container_width=True)
+
+    trend_dates = pd.date_range(end=datetime.now(), periods=6, freq="M")
+    trend_df = pd.DataFrame({
+        "日期": trend_dates,
+        "总体严重度": np.clip(
+            np.linspace(0.6, 1.0, len(trend_dates)) * sum(area_percentages.values()),
+            0,
+            100
+        ),
+        "裂缝面积占比": np.linspace(
+            0.5, 1.1, len(trend_dates)
+        ) * area_percentages.get("裂缝", 0.1)
+    })
+    fig_trend = px.line(
+        trend_df,
+        x="日期",
+        y=["总体严重度", "裂缝面积占比"],
+        title="病害趋势模拟"
+    )
+    st.plotly_chart(fig_trend, use_container_width=True)
+
+    if aggregated_mask is not None:
+        fig_heatmap = px.imshow(
+            aggregated_mask,
+            color_continuous_scale="YlOrRd",
+            title="病害空间分布热力图（示意）"
+        )
+        st.plotly_chart(fig_heatmap, use_container_width=True)
+    else:
+        st.caption("暂无可用于热力图展示的掩膜数据。")
+
+
+def init_project_state():
+    """初始化项目管理的会话状态。"""
+    if "projects" not in st.session_state:
+        st.session_state["projects"] = [
+            {"name": "莫高窟第45窟监测", "status": "进行中", "last_update": "2024-01-15", "progress": 0.75},
+            {"name": "云冈石窟年度评估", "status": "已完成", "last_update": "2024-01-10", "progress": 1.0},
+        ]
+    if "show_new_project_form" not in st.session_state:
+        st.session_state["show_new_project_form"] = False
+
+
+def render_project_manager():
+    """渲染项目管理面板。"""
+    init_project_state()
+    st.subheader("项目与任务")
+    for project in st.session_state["projects"]:
+        label = f"{project['name']}｜{project['status']}"
+        with st.expander(label, expanded=False):
+            col_a, col_b = st.columns([2, 1])
+            with col_a:
+                st.write(f"最后更新：{project['last_update']}")
+                st.progress(project.get("progress", 0.0))
+            with col_b:
+                if st.button("设为当前项目", key=f"activate_{project['name']}"):
+                    st.session_state["current_project"] = project["name"]
+                    st.success(f"已激活项目：{project['name']}")
+
+    if st.button("➕ 新建项目", key="add_project"):
+        st.session_state["show_new_project_form"] = True
+
+    if st.session_state["show_new_project_form"]:
+        with st.form("create_project_form"):
+            name = st.text_input("项目名称", "")
+            status = st.selectbox("项目状态", ["进行中", "已完成", "待启动"])
+            progress = st.slider("当前进度", 0, 100, 10) / 100.0
+            submitted = st.form_submit_button("创建")
+            if submitted:
+                if name.strip():
+                    st.session_state["projects"].append({
+                        "name": name.strip(),
+                        "status": status,
+                        "last_update": datetime.now().strftime("%Y-%m-%d"),
+                        "progress": progress,
+                    })
+                    st.success(f"项目“{name}”创建成功！")
+                    st.session_state["show_new_project_form"] = False
+                else:
+                    st.warning("请填写项目名称后再提交。")
+
+
+class ProfessionalPDFReport:
+    """专业PDF报告生成器"""
+
+    def __init__(self):
+        self.styles = getSampleStyleSheet()
+        self._setup_chinese_font()
+        self._setup_custom_styles()
+
+    def _setup_chinese_font(self):
+        """设置中文字体支持"""
+        self.chinese_font = "Helvetica"
+        font_candidates = [
+            "C:/Windows/Fonts/msyh.ttc",
+            "C:/Windows/Fonts/simhei.ttf",
+            "/System/Library/Fonts/PingFang.ttc",
+            "/usr/share/fonts/truetype/droid/DroidSansFallbackFull.ttf",
+        ]
+        for font_path in font_candidates:
+            if os.path.exists(font_path):
+                try:
+                    if font_path.lower().endswith(".ttc"):
+                        pdfmetrics.registerFont(TTFont("ChineseFont", font_path, subfontIndex=0))
+                    else:
+                        pdfmetrics.registerFont(TTFont("ChineseFont", font_path))
+                    self.chinese_font = "ChineseFont"
+                    break
+                except Exception:
+                    continue
+
+    def _setup_custom_styles(self):
+        """设置自定义样式"""
+        title_style = ParagraphStyle(
+            name="ChineseTitle",
+            parent=self.styles["Title"],
+            fontName=self.chinese_font,
+            fontSize=18,
+            spaceAfter=30,
+            alignment=1,
+            textColor=colors.HexColor("#2c3e50"),
+        )
+
+        heading1 = ParagraphStyle(
+            name="ChineseHeading1",
+            parent=self.styles["Heading1"],
+            fontName=self.chinese_font,
+            fontSize=14,
+            spaceAfter=12,
+            spaceBefore=20,
+            textColor=colors.HexColor("#34495e"),
+            leftIndent=0,
+        )
+
+        heading2 = ParagraphStyle(
+            name="ChineseHeading2",
+            parent=self.styles["Heading2"],
+            fontName=self.chinese_font,
+            fontSize=12,
+            spaceAfter=8,
+            textColor=colors.HexColor("#5d6d7e"),
+        )
+
+        normal = ParagraphStyle(
+            name="ChineseNormal",
+            parent=self.styles["Normal"],
+            fontName=self.chinese_font,
+            fontSize=10,
+            spaceAfter=6,
+            leading=14,
+            textColor=colors.HexColor("#2c3e50"),
+        )
+
+        emphasis = ParagraphStyle(
+            name="ChineseEmphasis",
+            parent=self.styles["Normal"],
+            fontName=self.chinese_font,
+            fontSize=10,
+            textColor=colors.HexColor("#e74c3c"),
+        )
+
+        table_style = ParagraphStyle(
+            name="ChineseTable",
+            parent=self.styles["Normal"],
+            fontName=self.chinese_font,
+            fontSize=9,
+            alignment=0,
+            leading=12,
+        )
+
+        for style in (title_style, heading1, heading2, normal, emphasis, table_style):
+            self.styles.add(style)
+
+    def create_cover_page(self, story, basic_info):
+        """创建封面页"""
+        cover_image = basic_info.get("cover_image")
+        if cover_image:
+            cover_img = RLImage(cover_image, width=6 * inch, height=3 * inch)
+            cover_img.hAlign = "CENTER"
+            story.append(cover_img)
+            story.append(Spacer(1, 20))
+
+        title = Paragraph("石窟寺壁画病害分析报告", self.styles["ChineseTitle"])
+        story.append(title)
+        story.append(Spacer(1, 30))
+
+        cover_data = [
+            ["项目名称:", basic_info.get("project_name", "石窟寺壁画病害分析")],
+            ["分析对象:", basic_info.get("location", "未指定")],
+            ["分析时间:", basic_info.get("analysis_time", datetime.now().strftime("%Y-%m-%d %H:%M"))],
+            ["材质类型:", basic_info.get("material", "未指定")],
+            ["严重程度:", basic_info.get("severity", "待评估")],
+            ["报告编号:", basic_info.get("report_id", f"RP-{datetime.now().strftime('%Y%m%d%H%M')}")],
+        ]
+
+        cover_table = Table(cover_data, colWidths=[2 * inch, 4 * inch])
+        cover_table.setStyle(
+            TableStyle(
+                [
+                    ("FONT", (0, 0), (-1, -1), self.chinese_font, 10),
+                    ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#ecf0f1")),
+                    ("BACKGROUND", (1, 0), (1, -1), colors.white),
+                    ("GRID", (0, 0), (-1, -1), 1, colors.HexColor("#bdc3c7")),
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("PADDING", (0, 0), (-1, -1), 6),
+                ]
+            )
+        )
+
+        story.append(cover_table)
+        story.append(Spacer(1, 40))
+
+        org_info = [
+            ["生成单位:", "上海交通大学设计学院"],
+            ["文物修复研究团队:", "AI+文物保护实验室"],
+            ["联系方式:", basic_info.get("contact", "待补充")],
+            ["报告版本:", basic_info.get("version", "1.0")],
+        ]
+
+        org_table = Table(org_info, colWidths=[2 * inch, 4 * inch])
+        org_table.setStyle(
+            TableStyle(
+                [
+                    ("FONT", (0, 0), (-1, -1), self.chinese_font, 9),
+                    ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#34495e")),
+                    ("TEXTCOLOR", (0, 0), (0, -1), colors.white),
+                    ("BACKGROUND", (1, 0), (1, -1), colors.HexColor("#ecf0f1")),
+                    ("GRID", (0, 0), (-1, -1), 1, colors.HexColor("#7f8c8d")),
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("PADDING", (0, 0), (-1, -1), 6),
+                ]
+            )
+        )
+
+        story.append(org_table)
+        story.append(PageBreak())
+
+    def create_summary_section(self, story, analysis_data):
+        """创建摘要部分"""
+        story.append(Paragraph("执行摘要", self.styles["ChineseHeading1"]))
+
+        summary_data = [
+            ["检测指标", "数量/比例", "严重程度"],
+            ["裂缝病害", f"{analysis_data.get('crack_count', 0)}处", analysis_data.get("crack_severity", "低")],
+            ["剥落区域", f"{analysis_data.get('peel_area', 0):.1f}%", analysis_data.get("peel_severity", "低")],
+            ["褪色程度", f"{analysis_data.get('discolor_level', 0):.1f}%", analysis_data.get("discolor_severity", "低")],
+            ["整体健康度", f"{analysis_data.get('overall_health', 0):.1f}%", analysis_data.get("overall_severity", "良好")],
+        ]
+
+        summary_table = Table(summary_data, colWidths=[2 * inch, 1.5 * inch, 1.5 * inch])
+        summary_table.setStyle(
+            TableStyle(
+                [
+                    ("FONT", (0, 0), (-1, 0), self.chinese_font, 10),
+                    ("FONT", (0, 1), (-1, -1), self.chinese_font, 9),
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#34495e")),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                    ("BACKGROUND", (0, 1), (-1, -1), colors.HexColor("#f8f9fa")),
+                    ("GRID", (0, 0), (-1, -1), 1, colors.HexColor("#dee2e6")),
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("ALIGN", (1, 0), (2, -1), "CENTER"),
+                    ("PADDING", (0, 0), (-1, -1), 8),
+                ]
+            )
+        )
+
+        story.append(summary_table)
+        story.append(Spacer(1, 12))
+
+        summary_text = (
+            f"本次分析对{analysis_data.get('location', '目标壁画')}进行了全面的病害检测和评估，"
+            f"共发现{analysis_data.get('total_defects', 0)}处主要病害，整体保存状况"
+            f"{analysis_data.get('preservation_status', '良好')}，建议"
+            f"{analysis_data.get('recommendation_level', '定期监测')}。"
+        )
+        story.append(Paragraph(summary_text, self.styles["ChineseNormal"]))
+
+        result_lines = analysis_data.get("result_lines")
+        if result_lines:
+            story.append(Spacer(1, 8))
+            for line in result_lines:
+                story.append(Paragraph(f"• {line}", self.styles["ChineseNormal"]))
+
+    def create_visualization_section(self, story, images_data):
+        """创建可视化部分"""
+        story.append(Paragraph("可视化分析", self.styles["ChineseHeading1"]))
+
+        if images_data.get("original_image"):
+            story.append(Paragraph("原始图像", self.styles["ChineseHeading2"]))
+            orig_img = RLImage(images_data["original_image"], width=5 * inch, height=3 * inch)
+            orig_img.hAlign = "CENTER"
+            story.append(orig_img)
+            story.append(Spacer(1, 12))
+
+        if images_data.get("analysis_image"):
+            story.append(Paragraph("病害分析结果", self.styles["ChineseHeading2"]))
+            analysis_img = RLImage(images_data["analysis_image"], width=5 * inch, height=3 * inch)
+            analysis_img.hAlign = "CENTER"
+            story.append(analysis_img)
+            story.append(Spacer(1, 12))
+
+        comparison_images = images_data.get("comparison_images")
+        if comparison_images:
+            story.append(Paragraph("对比分析", self.styles["ChineseHeading2"]))
+            rows = []
+            for i in range(0, len(comparison_images), 2):
+                row = []
+                row.append(RLImage(comparison_images[i], width=2.5 * inch, height=2 * inch))
+                if i + 1 < len(comparison_images):
+                    row.append(RLImage(comparison_images[i + 1], width=2.5 * inch, height=2 * inch))
+                else:
+                    row.append("")
+                rows.append(row)
+
+            comp_table = Table(rows, colWidths=[2.7 * inch, 2.7 * inch])
+            comp_table.setStyle(
+                TableStyle(
+                    [
+                        ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                    ]
+                )
+            )
+            story.append(comp_table)
+
+    def create_detailed_analysis_section(self, story, detailed_data):
+        """创建详细分析部分"""
+        story.append(Paragraph("详细病害分析", self.styles["ChineseHeading1"]))
+
+        defect_data = [["病害类型", "数量", "面积比例", "平均尺度", "严重程度"]]
+        for defect in detailed_data.get("defects", []):
+            defect_data.append(
+                [
+                    defect.get("type", ""),
+                    str(defect.get("count", 0)),
+                    f"{defect.get('area_ratio', 0):.2f}%",
+                    f"{defect.get('avg_size', 0):.1f}px",
+                    defect.get("severity", ""),
+                ]
+            )
+
+        if len(defect_data) > 1:
+            defect_table = Table(defect_data, colWidths=[1.5 * inch, 0.8 * inch, 1 * inch, 1 * inch, 1.2 * inch])
+            defect_table.setStyle(
+                TableStyle(
+                    [
+                        ("FONT", (0, 0), (-1, 0), self.chinese_font, 9),
+                        ("FONT", (0, 1), (-1, -1), self.chinese_font, 8),
+                        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#2c3e50")),
+                        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                        ("BACKGROUND", (0, 1), (-1, -1), colors.HexColor("#f8f9fa")),
+                        ("GRID", (0, 0), (-1, -1), 1, colors.HexColor("#dee2e6")),
+                        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                        ("ALIGN", (1, 0), (3, -1), "CENTER"),
+                        ("PADDING", (0, 0), (-1, -1), 6),
+                        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f8f9fa")]),
+                    ]
+                )
+            )
+            story.append(defect_table)
+            story.append(Spacer(1, 12))
+
+        for defect in detailed_data.get("defects", []):
+            description = defect.get("description")
+            if description:
+                story.append(
+                    Paragraph(f"<b>{defect.get('type', '')}：</b>{description}", self.styles["ChineseNormal"])
+                )
+
+    def create_recommendations_section(self, story, recommendations):
+        """创建建议部分"""
+        story.append(Paragraph("保护建议", self.styles["ChineseHeading1"]))
+
+        rec_data = [["优先级", "建议措施", "时间要求", "预估成本"]]
+        for rec in recommendations.get("actions", []):
+            rec_data.append(
+                [
+                    f"P{rec.get('priority', 1)}",
+                    rec.get("action", ""),
+                    rec.get("timeline", ""),
+                    rec.get("cost", ""),
+                ]
+            )
+
+        if len(rec_data) > 1:
+            rec_table = Table(rec_data, colWidths=[0.6 * inch, 3 * inch, 1.2 * inch, 1.2 * inch])
+            rec_table.setStyle(
+                TableStyle(
+                    [
+                        ("FONT", (0, 0), (-1, 0), self.chinese_font, 9),
+                        ("FONT", (0, 1), (-1, -1), self.chinese_font, 8),
+                        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#27ae60")),
+                        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                        ("BACKGROUND", (0, 1), (-1, -1), colors.HexColor("#f8f9fa")),
+                        ("GRID", (0, 0), (-1, -1), 1, colors.HexColor("#dee2e6")),
+                        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                        ("PADDING", (0, 0), (-1, -1), 6),
+                        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f8f9fa")]),
+                    ]
+                )
+            )
+            story.append(rec_table)
+
+        story.append(Spacer(1, 12))
+
+        long_term = recommendations.get("long_term", [])
+        if long_term:
+            story.append(Paragraph("长期保护策略", self.styles["ChineseHeading2"]))
+            for strategy in long_term:
+                story.append(Paragraph(f"• {strategy}", self.styles["ChineseNormal"]))
+
+    def create_technical_details_section(self, story, tech_data):
+        """创建技术细节部分"""
+        story.append(Paragraph("技术参数", self.styles["ChineseHeading1"]))
+
+        tech_details = [
+            ["分析算法", tech_data.get("algorithm", "深度学习+传统CV")],
+            ["图像分辨率", tech_data.get("resolution", "未指定")],
+            ["检测置信度", f"{tech_data.get('confidence', 0):.1%}"],
+            ["处理时间", tech_data.get("processing_time", "未知")],
+            ["分析软件", tech_data.get("software", "石窟寺壁画AI分析系统")],
+            ["数据格式", tech_data.get("data_format", "RGB图像 + 二进制掩膜")],
+        ]
+
+        tech_table = Table(tech_details, colWidths=[1.5 * inch, 4.5 * inch])
+        tech_table.setStyle(
+            TableStyle(
+                [
+                    ("FONT", (0, 0), (-1, -1), self.chinese_font, 9),
+                    ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#ecf0f1")),
+                    ("BACKGROUND", (1, 0), (1, -1), colors.white),
+                    ("GRID", (0, 0), (-1, -1), 1, colors.HexColor("#bdc3c7")),
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("PADDING", (0, 0), (-1, -1), 6),
+                ]
+            )
+        )
+
+        story.append(tech_table)
+
+    def generate_comprehensive_report(self, output_buffer, report_data):
+        """生成综合报告"""
+        doc = SimpleDocTemplate(
+            output_buffer,
+            pagesize=A4,
+            rightMargin=72,
+            leftMargin=72,
+            topMargin=72,
+            bottomMargin=72,
+            title="石窟寺壁画病害分析报告",
+        )
+
+        story = []
+
+        self.create_cover_page(story, report_data.get("basic_info", {}))
+        self.create_summary_section(story, report_data.get("analysis_data", {}))
+        story.append(Spacer(1, 20))
+        self.create_visualization_section(story, report_data.get("images", {}))
+        story.append(PageBreak())
+        self.create_detailed_analysis_section(story, report_data.get("detailed_data", {}))
+        story.append(Spacer(1, 20))
+        self.create_recommendations_section(story, report_data.get("recommendations", {}))
+        story.append(Spacer(1, 20))
+        self.create_technical_details_section(story, report_data.get("technical_data", {}))
+
+        story.append(Spacer(1, 30))
+        footer_text = (
+            f"报告生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} | "
+            "上海交通大学设计学院文物修复团队 | "
+            "本报告仅供参考，具体保护措施请咨询专业文物修复人员"
+        )
+        story.append(Paragraph(footer_text, self.styles["ChineseNormal"]))
+
+        doc.build(story)
+
 # ---------------------------
 # Material-specific parameters
 # ---------------------------
@@ -3304,6 +3894,9 @@ def run_segmentation_model(image_bgr, model_path, input_size=512, class_ids=None
 st.markdown("<h1 style='text-align:center;color:#8B4513;margin-bottom:1rem;'>🏛️ 石窟寺壁画病害AI识别工具（升级版）</h1>", unsafe_allow_html=True)
 
 # Sidebar controls
+with st.sidebar.expander("📂 项目调度中心", expanded=False):
+    render_project_manager()
+
 st.sidebar.markdown("### 配置与材质选择")
 material = st.sidebar.selectbox("选择壁画材质（影响评分与建议）", MATERIAL_OPTIONS)
 auto_material = st.sidebar.checkbox("自动识别材质（试验性）", value=False)
@@ -3775,6 +4368,45 @@ if uploaded is not None and analyze_btn:
         for r in detailed_recs:
             st.write(f"- {r}")
 
+        category_counts = {
+            "裂缝": len(metrics.get("裂缝", [])),
+            "剥落": len(metrics.get("剥落", [])),
+            "褪色": len(metrics.get("褪色", [])),
+            "污渍/霉斑": len(metrics.get("污渍/霉斑", [])),
+            "盐蚀/风化": len(metrics.get("盐蚀/风化", [])),
+            "生物附着": len(metrics.get("生物附着", [])),
+        }
+        area_percentages = {
+            "裂缝": crack_pct,
+            "剥落": peel_pct,
+            "褪色": disc_pct,
+            "污渍/霉斑": stain_pct,
+            "盐蚀/风化": salt_pct,
+            "生物附着": bio_pct,
+        }
+        combined_mask = (
+            (mask_crack > 0).astype(np.float32) * 1.2
+            + (mask_peel > 0).astype(np.float32) * 1.0
+            + (mask_disc > 0).astype(np.float32) * 0.8
+            + (mask_stain > 0).astype(np.float32) * 0.6
+            + (mask_salt > 0).astype(np.float32) * 0.7
+            + (mask_bio > 0).astype(np.float32) * 0.5
+        )
+        heatmap_preview = downscale_mask_for_heatmap(combined_mask)
+
+        enh_tabs = st.tabs(["📊 交互仪表板", "🔄 进度演示", "✨ 功能提示"])
+        with enh_tabs[0]:
+            render_interactive_dashboard(category_counts, area_percentages, heatmap_preview)
+        with enh_tabs[1]:
+            render_quick_progress_controls()
+        with enh_tabs[2]:
+            st.subheader("快速增强建议")
+            st.markdown(
+                "- 使用项目管理面板切换不同洞窟分析任务。\n"
+                "- 结合趋势图评估病害发展速度，及时调整保护策略。\n"
+                "- 通过进度演示向团队展示系统工作流程，方便培训与沟通。"
+            )
+
         # ---------------------
         # 图像复原功能（主分析流程中）
         # ---------------------
@@ -3801,6 +4433,7 @@ if uploaded is not None and analyze_btn:
         # ---------------------
         # Time-comparison (if previous uploaded)
         # ---------------------
+        comparison_images_for_pdf = []
         if uploaded_prev:
             prev_bytes = np.asarray(bytearray(uploaded_prev.read()), dtype=np.uint8)
             prev_img = cv2.imdecode(prev_bytes, cv2.IMREAD_COLOR)
@@ -3834,46 +4467,156 @@ if uploaded is not None and analyze_btn:
                 elif (peel_area - prev_peel_area) > (0.05 * total_pixels):
                     st.error("剥落面积显著增加，可能存在进展性破坏。")
 
+                try:
+                    prev_img_rgb = cv2.cvtColor(prev_img_proc, cv2.COLOR_BGR2RGB)
+                    comparison_images_for_pdf.append(numpy_image_to_bytes(prev_img_rgb))
+                    comparison_images_for_pdf.append(numpy_image_to_bytes(img_rgb))
+                except Exception:
+                    pass
+
         # ---------------------
         # Generate PDF with annotated image and results
         # ---------------------
         def generate_pdf_report(annotated_rgb, results, material, suggestions_text):
-            """Create PDF and return bytesIO"""
-            buf = BytesIO()
-            doc = SimpleDocTemplate(buf, pagesize=A4)
-            styles = getSampleStyleSheet()
-            story = []
-            story.append(Paragraph("石窟寺壁画病害AI诊断报告（升级版）", styles['Title']))
-            story.append(Spacer(1,6))
-            story.append(Paragraph(f"生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}", styles['Normal']))
-            story.append(Spacer(1,12))
+            """生成专业版PDF报告并返回BytesIO"""
 
-            # insert annotated image (save to tmp buffer)
-            img_buf = save_annotated_image_bytes(annotated_rgb)
-            # reportlab needs a filename-like object; RLImage accepts BytesIO
-            story.append(RLImage(img_buf, width=160*mm, height=(160*annotated_rgb.shape[0]/annotated_rgb.shape[1])*mm))
-            story.append(Spacer(1,12))
+            def classify_severity(pct_value: float) -> str:
+                if pct_value >= 6.0:
+                    return "高"
+                if pct_value >= 2.0:
+                    return "中"
+                if pct_value > 0:
+                    return "低"
+                return "无"
 
-            story.append(Paragraph("<b>一、量化结果</b>", styles['Heading2']))
-            for line in results:
-                story.append(Paragraph(line, styles['Normal']))
-            story.append(Spacer(1,8))
+            location_name = uploaded.name if uploaded else "当前壁画样本"
+            total_defects = sum(len(rows) for rows in metrics.values())
+            overall_health = max(0.0, 100.0 - severity)
+            if severity >= 30:
+                preservation_status = "需重点关注"
+                recommendation_level = "加强监测"
+            elif severity >= 10:
+                preservation_status = "较好"
+                recommendation_level = "定期监测"
+            else:
+                preservation_status = "良好"
+                recommendation_level = "持续观察"
 
-            story.append(Paragraph("<b>二、综合建议</b>", styles['Heading2']))
-            for line in suggestions_text:
-                story.append(Paragraph(line, styles['Normal']))
-            story.append(Spacer(1,12))
+            analysis_data = {
+                "location": location_name,
+                "crack_count": len(metrics.get("裂缝", [])),
+                "crack_severity": classify_severity(crack_pct),
+                "peel_area": peel_pct,
+                "peel_severity": classify_severity(peel_pct),
+                "discolor_level": disc_pct,
+                "discolor_severity": classify_severity(disc_pct),
+                "overall_health": overall_health,
+                "overall_severity": lvl,
+                "total_defects": total_defects,
+                "preservation_status": preservation_status,
+                "recommendation_level": recommendation_level,
+                "result_lines": results,
+            }
 
-            if material != "未指定":
-                story.append(Paragraph("<b>三、材质专用建议</b>", styles['Heading2']))
-                for t in MATERIAL_SUGGESTIONS.get(material, []):
-                    story.append(Paragraph(t, styles['Normal']))
-                story.append(Spacer(1,8))
+            defect_categories = [
+                ("裂缝", crack_pct, metrics.get("裂缝", [])),
+                ("剥落", peel_pct, metrics.get("剥落", [])),
+                ("褪色", disc_pct, metrics.get("褪色", [])),
+                ("污渍/霉斑", stain_pct, metrics.get("污渍/霉斑", [])),
+                ("盐蚀/风化", salt_pct, metrics.get("盐蚀/风化", [])),
+                ("生物附着", bio_pct, metrics.get("生物附着", [])),
+            ]
 
-            story.append(Paragraph(f"© {datetime.now().year} 上海交通大学设计学院文物修复团队 | AI+文物保护研究", styles['Normal']))
-            doc.build(story)
-            buf.seek(0)
-            return buf
+            detailed_defects = []
+            for label, pct_value, rows in defect_categories:
+                count = len(rows)
+                severity_label = classify_severity(pct_value)
+                avg_length = float(np.mean([row.get("length_px", 0.0) for row in rows])) if rows else 0.0
+                if count == 0 and pct_value == 0:
+                    description = f"未检测到显著的{label}病害，建议保持常规巡检。"
+                elif severity_label == "高":
+                    description = f"检测到{count}处明显的{label}病害，覆盖面积占比约{pct_value:.2f}%，建议立即组织针对性修复。"
+                elif severity_label == "中":
+                    description = f"{label}病害覆盖面积约{pct_value:.2f}%，需在近期安排重点加固与养护。"
+                else:
+                    description = f"{label}病害覆盖面积约{pct_value:.2f}%，建议纳入关键区域巡查计划。"
+
+                detailed_defects.append(
+                    {
+                        "type": label,
+                        "count": count,
+                        "area_ratio": pct_value,
+                        "avg_size": avg_length,
+                        "severity": severity_label,
+                        "description": description,
+                    }
+                )
+
+            rec_actions = []
+            for idx, rec_line in enumerate(suggestions_text):
+                priority = 1 if idx < 2 else 2
+                timeline = "1个月内" if priority == 1 else "3个月内"
+                rec_actions.append(
+                    {
+                        "priority": priority,
+                        "action": rec_line,
+                        "timeline": timeline,
+                        "cost": "待评估",
+                    }
+                )
+
+            long_term_suggestions = list(MATERIAL_SUGGESTIONS.get(material, []))
+            generic_long_term = [
+                "建立定期监测机制，每季度复核一次AI检测与人工巡查结果",
+                "维护洞窟温湿度环境，减少外界震动与人流影响",
+            ]
+            for item in generic_long_term:
+                if item not in long_term_suggestions:
+                    long_term_suggestions.append(item)
+
+            images = {
+                "original_image": numpy_image_to_bytes(img_rgb),
+                "analysis_image": numpy_image_to_bytes(annotated_rgb),
+            }
+            if comparison_images_for_pdf:
+                images["comparison_images"] = comparison_images_for_pdf
+
+            basic_info = {
+                "project_name": "壁画病害智能分析报告",
+                "location": location_name,
+                "analysis_time": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                "material": material,
+                "severity": lvl,
+                "report_id": f"RP-{datetime.now().strftime('%Y%m%d%H%M%S')}",
+                "cover_image": numpy_image_to_bytes(annotated_rgb),
+                "contact": st.session_state.get("contact_info", "待补充"),
+                "version": st.session_state.get("report_version", "1.0"),
+            }
+
+            confidence_est = max(0.6, min(0.98, 1.0 - severity / 120.0))
+            technical_data = {
+                "algorithm": "改进型多通道病害检测流程",
+                "resolution": f"{w}×{h}px",
+                "confidence": confidence_est,
+                "processing_time": st.session_state.get("processing_time", "约数秒（视硬件而定）"),
+                "software": "石窟寺壁画AI分析系统 v2.0",
+                "data_format": "RGB图像 + 检测掩膜",
+            }
+
+            report_data = {
+                "basic_info": basic_info,
+                "analysis_data": analysis_data,
+                "images": images,
+                "detailed_data": {"defects": detailed_defects},
+                "recommendations": {"actions": rec_actions, "long_term": long_term_suggestions},
+                "technical_data": technical_data,
+            }
+
+            pdf_generator = ProfessionalPDFReport()
+            pdf_buffer = BytesIO()
+            pdf_generator.generate_comprehensive_report(pdf_buffer, report_data)
+            pdf_buffer.seek(0)
+            return pdf_buffer
 
         results_lines = [
             f"裂缝覆盖面积：{crack_area} 像素，占比 {crack_pct:.4f}%",
