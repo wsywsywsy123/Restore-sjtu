@@ -841,9 +841,6 @@ def create_main_header():
         <h1 class="cultural-title" style="font-size: 3.2rem; margin-bottom: 0.5rem;">
             🏛️ 石窟寺壁画病害AI识别工具
         </h1>
-        <p class="cultural-subtitle" style="font-size: 1.3rem;">
-            上海交通大学设计学院 · 文物修复研究团队
-        </p>
         <div style="display: flex; justify-content: center; gap: 1.5rem; flex-wrap: wrap; margin-top: 1.5rem;">
             <span style="background: rgba(139, 115, 85, 0.1); padding: 0.6rem 1.2rem; border-radius: 25px; color: #8b7355; border: 1px solid #8b7355;">
                 🎨 多模态融合
@@ -1471,24 +1468,52 @@ class AdvancedMuralRestoration:
         return result
     
     def texture_aware_inpainting(self, image, mask, texture_weight=0.7):
-        """纹理感知修复"""
+        """
+        【已修正并升级】
+        此函数现在使用一个更高级的多尺度融合技术来模拟AI修复。
+        这个逻辑复制自本文件中的 deep_learning_inpainting 函数，
+        以确保替换掉导致马赛克效果的错误代码。
+        """
         result = image.copy()
-        methods = ['telea', 'ns']
-        results = []
         
-        for method in methods:
-            if method == 'telea':
-                inpainted = cv2.inpaint(image, mask, 3, cv2.INPAINT_TELEA)
-            else:
-                inpainted = cv2.inpaint(image, mask, 3, cv2.INPAINT_NS)
-            results.append(inpainted)
+        # 使用多尺度融合
+        scales = [0.5, 0.75, 1.0]  # 您可以调整尺度
         
-        if len(results) == 2:
-            blended = cv2.addWeighted(results[0], texture_weight, 
-                                    results[1], 1-texture_weight, 0)
-            result = blended
+        # 确保掩膜是单通道
+        if mask.ndim == 3:
+            mask_u8 = cv2.cvtColor(mask, cv2.COLOR_BGR2GRAY)
+        else:
+            mask_u8 = mask.copy()
         
-        return result
+        # 确保掩膜是 uint8 且二值化
+        mask_u8 = (mask_u8 > 0).astype(np.uint8) * 255
+        
+        # 第一次修复 (全尺寸) - 使用 NS (Navier-Stokes) 算法
+        result = cv2.inpaint(image, mask_u8, 3, cv2.INPAINT_NS)
+        
+        for scale in scales[:-1]:  # 遍历 0.5, 0.75
+            h, w = image.shape[:2]
+            new_size = (int(w*scale), int(h*scale))
+            
+            img_scaled = cv2.resize(image, new_size, interpolation=cv2.INTER_AREA)
+            # 缩放掩膜时使用 NEAREST (最近邻)
+            mask_scaled = cv2.resize(mask_u8, new_size, interpolation=cv2.INTER_NEAREST)
+            
+            # 在小尺度上修复
+            inpainted_scaled = cv2.inpaint(img_scaled, mask_scaled, 3, cv2.INPAINT_NS)
+            
+            # 放大回原尺寸 (使用 CUBIC 保证平滑)
+            inpainted_upscaled = cv2.resize(inpainted_scaled, (w, h), interpolation=cv2.INTER_CUBIC)
+            
+            # 将小尺度修复的纹理"融合"回全尺寸修复的结果
+            alpha = 0.3  # 融合权重
+            result = cv2.addWeighted(result, 1-alpha, inpainted_upscaled, alpha, 0)
+            
+            # 关键：只在掩膜区域内应用融合结果
+            mask_bool = mask_u8 > 0
+            image[mask_bool] = result[mask_bool]
+        
+        return image  # 返回最终融合并应用了掩膜的图像
     
     def color_restoration_advanced(self, image, method='comprehensive', 
                                   contrast_enhance=1.5, saturation_boost=1.2, 
@@ -1592,70 +1617,68 @@ class AdvancedMuralRestoration:
         return img
     
     def texture_fill(self, image, mask):
-        """纹理填充"""
+        """
+        【已升级】
+        重定向到更高级的多尺度修复函数。
+        """
+        # 调用下面那个更好的 patch_match_inpainting (多尺度) 函数
         return self.patch_match_inpainting(image, mask)
     
     def patch_match_inpainting(self, image, mask, patch_size=9):
-        """基于块匹配的修复（简化实现）"""
+        """
+        【已修正并升级】
+        基于多尺度融合的修复 (替换了原有的错误实现)
+        此函数现在使用一个更高级的多尺度融合技术来模拟AI修复。
+        这个逻辑复制自本文件中的 deep_learning_inpainting 函数。
+        """
         result = image.copy()
-        mask_indices = np.where(mask > 0)
         
-        for i in range(0, len(mask_indices[0]), patch_size):
-            y, x = mask_indices[0][i], mask_indices[1][i]
-            patch = self.get_best_matching_patch(image, mask, (x, y), patch_size)
-            if patch is not None:
-                result[y:y+patch_size, x:x+patch_size] = patch
+        # 使用多尺度融合
+        scales = [0.5, 0.75, 1.0]  # 您可以调整尺度
         
-        return result
+        # 确保掩膜是单通道
+        if mask.ndim == 3:
+            mask_u8 = cv2.cvtColor(mask, cv2.COLOR_BGR2GRAY)
+        else:
+            mask_u8 = mask.copy()
+        
+        # 确保掩膜是 uint8 且二值化
+        mask_u8 = (mask_u8 > 0).astype(np.uint8) * 255
+        
+        # 第一次修复 (全尺寸) - 使用 NS (Navier-Stokes) 算法
+        result = cv2.inpaint(image, mask_u8, 3, cv2.INPAINT_NS)
+        
+        for scale in scales[:-1]:  # 遍历 0.5, 0.75
+            h, w = image.shape[:2]
+            new_size = (int(w*scale), int(h*scale))
+            
+            img_scaled = cv2.resize(image, new_size, interpolation=cv2.INTER_AREA)
+            # 缩放掩膜时使用 NEAREST (最近邻)
+            mask_scaled = cv2.resize(mask_u8, new_size, interpolation=cv2.INTER_NEAREST)
+            
+            # 在小尺度上修复
+            inpainted_scaled = cv2.inpaint(img_scaled, mask_scaled, 3, cv2.INPAINT_NS)
+            
+            # 放大回原尺寸 (使用 CUBIC 保证平滑)
+            inpainted_upscaled = cv2.resize(inpainted_scaled, (w, h), interpolation=cv2.INTER_CUBIC)
+            
+            # 将小尺度修复的纹理"融合"回全尺寸修复的结果
+            alpha = 0.3  # 融合权重
+            result = cv2.addWeighted(result, 1-alpha, inpainted_upscaled, alpha, 0)
+            
+            # 关键：只在掩膜区域内应用融合结果
+            mask_bool = mask_u8 > 0
+            image[mask_bool] = result[mask_bool]
+        
+        return image  # 返回最终融合并应用了掩膜的图像
     
     def get_best_matching_patch(self, image, mask, center, patch_size):
-        """找到最佳匹配的纹理块"""
-        x, y = center
-        h, w = image.shape[:2]
-        search_radius = min(50, w//4, h//4)
-        best_patch = None
-        best_score = float('inf')
-        
-        for dy in range(-search_radius, search_radius, patch_size//2):
-            for dx in range(-search_radius, search_radius, patch_size//2):
-                y2, x2 = y + dy, x + dx
-                
-                if (y2 < 0 or y2 + patch_size >= h or 
-                    x2 < 0 or x2 + patch_size >= w):
-                    continue
-                
-                target_patch = image[y2:y2+patch_size, x2:x2+patch_size]
-                mask_patch = mask[y2:y2+patch_size, x2:x2+patch_size]
-                
-                if np.any(mask_patch > 0):
-                    continue
-                
-                score = self.calculate_patch_similarity(
-                    image[y:y+patch_size, x:x+patch_size], target_patch)
-                
-                if score < best_score:
-                    best_score = score
-                    best_patch = target_patch
-        
-        return best_patch
+        """(此函数已废弃) - 原有逻辑导致马赛克"""
+        return None
     
     def calculate_patch_similarity(self, patch1, patch2):
-        """计算图像块的相似度"""
-        if patch1.shape != patch2.shape:
-            return float('inf')
-        
-        diff = patch1.astype(np.float32) - patch2.astype(np.float32)
-        color_similarity = np.mean(np.abs(diff))
-        
-        gray1 = cv2.cvtColor(patch1, cv2.COLOR_BGR2GRAY)
-        gray2 = cv2.cvtColor(patch2, cv2.COLOR_BGR2GRAY)
-        
-        grad1 = cv2.Sobel(gray1, cv2.CV_32F, 1, 1)
-        grad2 = cv2.Sobel(gray2, cv2.CV_32F, 1, 1)
-        
-        texture_similarity = np.mean(np.abs(grad1 - grad2))
-        
-        return color_similarity * 0.7 + texture_similarity * 0.3
+        """(此函数已废弃) - 原有逻辑导致马赛克"""
+        return float('inf')
 
 
 class VirtualRestorationSystem:
@@ -2914,73 +2937,6 @@ def get_rapidocr_cached():
 # ---------------------------
 # Helpers: render inpainting UI
 # ---------------------------
-def render_inpainting_ui(img_rgb, mask_crack, mask_peel, mask_disc, mask_stain, mask_salt, mask_bio, default_open=True, key_suffix=""):
-    st.markdown("### 🧩 图像复原（试验性 Inpainting）")
-    with st.expander("展开/收起", expanded=default_open):
-        
-        def __len__(self):
-            return len(self.images)
-        
-        def __getitem__(self, idx):
-            image = self.images[idx]
-            label = self.labels[idx]
-            
-            if self.transform:
-                image = self.transform(image)
-            
-            return image, label
-
-    class DefectClassifier(nn.Module):
-        """病害分类器"""
-        def __init__(self, num_classes=6, pretrained=True):
-            super(DefectClassifier, self).__init__()
-            
-            # 使用预训练的ResNet作为骨干网络
-            self.backbone = torchvision.models.resnet50(pretrained=pretrained)
-            num_features = self.backbone.fc.in_features
-            
-            # 替换最后的全连接层
-            self.backbone.fc = nn.Sequential(
-                nn.Dropout(0.5),
-                nn.Linear(num_features, 512),
-                nn.ReLU(),
-                nn.Dropout(0.3),
-                nn.Linear(512, num_classes)
-            )
-        
-        def forward(self, x):
-            return self.backbone(x)
-
-    class DataAugmentation:
-        """数据增强"""
-        def __init__(self):
-            self.transform = A.Compose([
-                A.HorizontalFlip(p=0.5),
-                A.VerticalFlip(p=0.3),
-                A.Rotate(limit=15, p=0.5),
-                A.RandomBrightnessContrast(brightness_limit=0.2, contrast_limit=0.2, p=0.5),
-                A.GaussNoise(var_limit=(10.0, 50.0), p=0.3),
-                A.Blur(blur_limit=3, p=0.3),
-                A.RandomCrop(height=224, width=224, p=0.8),
-                A.Resize(height=224, width=224),
-                A.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-                ToTensorV2()
-            ])
-        
-        def __call__(self, image):
-            return self.transform(image=image)['image']
-    # 全局深度学习系统实例
-    @st.cache_resource
-    def get_model_trainer():
-        return ModelTrainer
-
-    @st.cache_resource
-    def get_data_augmentation():
-        return DataAugmentation()
-
-    @st.cache_resource
-    def get_transfer_learning():
-        return TransferLearning()
 def render_inpainting_ui(img_rgb, mask_crack, mask_peel, mask_disc, mask_stain, mask_salt, mask_bio, default_open=True, key_suffix=""):
     st.markdown("### 🧩 图像复原（试验性 Inpainting）")
     with st.expander("展开/收起", expanded=default_open):
