@@ -145,7 +145,12 @@ try:
 except Exception:
     DEEP_LEARNING_AVAILABLE = False
 
-st.set_page_config("石窟寺壁画病害AI识别工具（升级版）", layout="wide", page_icon="🏛️")
+st.set_page_config(
+    page_title="石窟寺壁画病害AI识别工具（升级版）",
+    layout="wide",
+    page_icon="🏛️",
+    initial_sidebar_state="expanded"
+)
 
 # ---------------------------
 # 所有功能模块定义（整合到app.py中）
@@ -449,153 +454,441 @@ def detect_bio_growth_improved(hsv: np.ndarray) -> Tuple[List[Tuple[int, int, in
 # UI改进功能（整合自improved_ui.py）- 需要在调用前定义
 # ---------------------------
 def inject_custom_css():
-    """注入自定义CSS样式"""
+    """注入文物图案背景样式"""
     st.markdown("""
     <style>
+    /* 主背景 - 敦煌壁画风格 */
+    .stApp {
+        background: 
+            /* 主色调 - 土黄色基底，模拟壁画底色 */
+            linear-gradient(135deg, #f4e4bc 0%, #e8d5b5 100%),
+            /* 纹理叠加 - 模拟壁画纸张纹理 */
+            url("data:image/svg+xml,%3Csvg width='100' height='100' viewBox='0 0 100 100' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M11 18c3.866 0 7-3.134 7-7s-3.134-7-7-7-7 3.134-7 7 3.134 7 7 7zm48 25c3.866 0 7-3.134 7-7s-3.134-7-7-7-7 3.134-7 7 3.134 7 7 7zm-43-7c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zm63 31c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zM34 90c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zm56-76c1.657 0 3-1.343 3-3s-1.343-3-3-3-3 1.343-3 3 1.343 3 3 3zM12 86c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm28-65c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm23-11c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm-6 60c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm29 22c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zM32 63c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm57-13c2.76 0 5-2.24 5-5s-2.24-5-5-5-5 2.24-5 5 2.24 5 5 5zm-9-21c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2zM60 91c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2zM35 41c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2zM12 60c1.105 0 2-.895 2-2s-.895-2-2-2-2 .895-2 2 .895 2 2 2z' fill='%23d4c4a8' fill-opacity='0.2' fill-rule='evenodd'/%3E%3C/svg%3E"),
+            /* 边框装饰 - 模拟卷轴边缘 */
+            linear-gradient(90deg, transparent 95%, #8b7355 95%),
+            linear-gradient(90deg, transparent 5%, #8b7355 5%),
+            linear-gradient(0deg, transparent 95%, #8b7355 95%),
+            linear-gradient(0deg, transparent 5%, #8b7355 5%);
+        background-size: cover, 200px 200px, 100% 100%, 100% 100%, 100% 100%, 100% 100%;
+        background-attachment: fixed;
+        position: relative;
+    }
+
+    /* 卷轴装饰效果 - 降低z-index，确保不遮挡内容 */
+    .stApp::before {
+        content: "";
+        position: fixed;
+        top: 50px;
+        left: 50px;
+        right: 50px;
+        bottom: 50px;
+        border: 2px solid #8b7355;
+        border-radius: 8px;
+        pointer-events: none;
+        z-index: -1;
+        box-shadow: 
+            inset 0 0 50px rgba(139, 115, 85, 0.1),
+            0 0 30px rgba(0, 0, 0, 0.1);
+    }
+
+    /* 传统纹样装饰 - 降低z-index，确保不遮挡内容 */
+    .stApp::after {
+        content: "";
+        position: fixed;
+        top: 40px;
+        left: 40px;
+        right: 40px;
+        bottom: 40px;
+        background-image: 
+            radial-gradient(circle at 20% 20%, rgba(139, 115, 85, 0.05) 0%, transparent 50%),
+            radial-gradient(circle at 80% 80%, rgba(139, 115, 85, 0.05) 0%, transparent 50%);
+        pointer-events: none;
+        z-index: -1;
+    }
+    
+    /* 确保Streamlit主内容区域在装饰层之上 */
+    .main .block-container {
+        position: relative;
+        z-index: 1;
+        display: flex;
+        flex-direction: column;
+        min-height: calc(100vh - 10rem);
+    }
+    
+    /* 确保所有Streamlit元素可见 */
+    .stApp > div {
+        position: relative;
+        z-index: 1;
+    }
+
+    /* 主内容容器 */
+    .main-container {
+        background: rgba(255, 253, 245, 0.92);
+        backdrop-filter: blur(15px);
+        border-radius: 12px;
+        padding: 2.5rem;
+        margin: 1rem;
+        box-shadow: 
+            0 8px 40px rgba(0, 0, 0, 0.15),
+            inset 0 1px 0 rgba(255, 255, 255, 0.8);
+        border: 1px solid rgba(139, 115, 85, 0.3);
+        position: relative;
+        z-index: 10;
+        border-left: 8px solid #8b7355;
+        border-right: 8px solid #8b7355;
+    }
+
     /* 主容器样式 */
     .main-header {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: rgba(255, 253, 245, 0.95);
+        backdrop-filter: blur(20px);
         padding: 2rem;
         border-radius: 15px;
-        color: white;
+        color: #5d4037;
         margin-bottom: 2rem;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+        box-shadow: 
+            0 8px 40px rgba(0, 0, 0, 0.15),
+            inset 0 1px 0 rgba(255, 255, 255, 0.8);
+        border: 1px solid rgba(139, 115, 85, 0.3);
+        border-left: 8px solid #8b7355;
+        border-right: 8px solid #8b7355;
+        position: relative;
+        z-index: 10;
     }
     
     .main-header h1 {
-        font-size: 2.5rem;
-        font-weight: 700;
+        font-size: 3.2rem;
+        font-weight: bold;
         margin-bottom: 0.5rem;
         text-align: center;
+        font-family: 'SimSun', serif;
+        color: #5d4037;
+        text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
     }
     
     .main-header .subtitle {
-        font-size: 1.2rem;
+        font-size: 1.3rem;
         text-align: center;
-        opacity: 0.9;
-        font-weight: 300;
+        color: #8b7355;
+        font-weight: 500;
+        font-family: 'SimSun', serif;
     }
     
     /* 侧边栏样式 */
+    .css-1d391kg {
+        background: rgba(255, 253, 245, 0.95) !important;
+        backdrop-filter: blur(20px) !important;
+        border-right: 3px solid #8b7355 !important;
+        box-shadow: 5px 0 25px rgba(0, 0, 0, 0.1) !important;
+        position: relative !important;
+        z-index: 100 !important;
+    }
+    
+    /* 确保侧边栏内容可见 */
+    [data-testid="stSidebar"] {
+        position: relative !important;
+        z-index: 100 !important;
+    }
+    
     .sidebar-header {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
+        background: rgba(139, 115, 85, 0.1);
+        color: #5d4037;
         padding: 1rem;
         border-radius: 10px;
         margin-bottom: 1rem;
         text-align: center;
+        border: 1px solid rgba(139, 115, 85, 0.3);
+        font-family: 'SimSun', serif;
     }
     
-    /* 卡片样式 */
+    /* 卡片样式 - 模拟古籍书页 */
     .card {
-        background: white;
-        padding: 1.5rem;
-        border-radius: 12px;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.08);
-        border: 1px solid #e9ecef;
-        margin-bottom: 1rem;
+        background: linear-gradient(135deg, #fffdf5 0%, #f9f5e9 100%);
+        border-radius: 8px;
+        padding: 1rem;
+        margin: 0.8rem 0;
+        box-shadow: 
+            0 4px 20px rgba(0, 0, 0, 0.08),
+            inset 0 1px 0 rgba(255, 255, 255, 0.6);
+        border: 1px solid rgba(139, 115, 85, 0.2);
+        border-left: 4px solid #8b7355;
+        transition: all 0.3s ease;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .card::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 1px;
+        background: linear-gradient(90deg, transparent, #8b7355, transparent);
+    }
+
+    .card:hover {
+        transform: translateY(-3px);
+        box-shadow: 
+            0 8px 30px rgba(0, 0, 0, 0.12),
+            inset 0 1px 0 rgba(255, 255, 255, 0.8);
     }
     
     .card-header {
-        font-size: 1.1rem;
+        font-size: 1rem;
         font-weight: 600;
-        color: #2c3e50;
-        margin-bottom: 1rem;
+        color: #5d4037;
+        margin-bottom: 0.8rem;
         display: flex;
         align-items: center;
         gap: 0.5rem;
+        font-family: 'SimSun', serif;
+        border-bottom: 1px solid #d7ccc8;
+        padding-bottom: 0.3rem;
+    }
+
+    /* 上传区域样式 */
+    .upload-section {
+        background: rgba(255, 253, 245, 0.8);
+        border: 2px dashed #8b7355;
+        border-radius: 10px;
+        padding: 2.2rem;
+        text-align: center;
+        transition: all 0.3s ease;
+        backdrop-filter: blur(10px);
+        position: relative;
+    }
+
+    .upload-section::before {
+        content: "📜";
+        font-size: 3rem;
+        position: absolute;
+        top: -20px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: #fffdf5;
+        padding: 0 1rem;
+    }
+
+    .upload-section:hover {
+        border-color: #6d4c41;
+        background: rgba(255, 253, 245, 0.95);
+        transform: translateY(-2px);
     }
     
-    /* 按钮样式 */
+    /* 按钮样式 - 传统印章风格 */
     .stButton > button {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
+        background: linear-gradient(135deg, #8b7355 0%, #6d4c41 100%);
+        color: #fffdf5 !important;
         border: none;
-        border-radius: 8px;
-        padding: 0.75rem 2rem;
+        border-radius: 6px;
+        padding: 0.9rem 2.2rem;
         font-weight: 600;
+        font-size: 1.1rem;
         transition: all 0.3s ease;
         width: 100%;
+        font-family: 'SimSun', serif;
+        letter-spacing: 1px;
+        box-shadow: 0 4px 15px rgba(139, 115, 85, 0.3);
+        position: relative;
+        overflow: hidden;
+    }
+
+    .stButton button::before {
+        content: "";
+        position: absolute;
+        top: 0;
+        left: -100%;
+        width: 100%;
+        height: 100%;
+        background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+        transition: left 0.5s;
+    }
+
+    .stButton button:hover::before {
+        left: 100%;
     }
     
     .stButton > button:hover {
         transform: translateY(-2px);
-        box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+        box-shadow: 0 6px 20px rgba(139, 115, 85, 0.4);
     }
     
     /* 标签页样式 */
     .stTabs [data-baseweb="tab-list"] {
-        gap: 8px;
-        background: #f8f9fa;
-        border-radius: 12px;
-        padding: 8px;
+        gap: 5px;
+        background: rgba(255, 253, 245, 0.9);
+        backdrop-filter: blur(10px);
+        border-radius: 8px;
+        padding: 6px;
+        border: 1px solid rgba(139, 115, 85, 0.3);
+        box-shadow: inset 0 1px 3px rgba(0,0,0,0.1);
     }
     
     .stTabs [data-baseweb="tab"] {
-        border-radius: 8px;
+        border-radius: 6px;
         padding: 12px 20px;
         font-weight: 500;
         transition: all 0.3s ease;
         background: transparent;
+        font-family: 'SimSun', serif;
+        border: 1px solid transparent;
     }
     
     .stTabs [aria-selected="true"] {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+        background: linear-gradient(135deg, #8b7355 0%, #6d4c41 100%);
+        color: #fffdf5 !important;
+        box-shadow: 0 2px 8px rgba(139, 115, 85, 0.3);
+        border: 1px solid #5d4037;
+    }
+    
+    /* 指标卡片 */
+    .metric-card {
+        background: linear-gradient(135deg, #fffdf5 0%, #f9f5e9 100%);
+        backdrop-filter: blur(10px);
+        padding: 0.8rem;
+        border-radius: 8px;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.08);
+        border: 1px solid rgba(139, 115, 85, 0.2);
+        border-top: 3px solid #8b7355;
+        margin: 0.5rem 0;
+        text-align: center;
+        font-family: 'SimSun', serif;
+    }
+    
+    .metric-card h4 {
+        font-size: 1rem;
+        margin: 0.3rem 0;
+    }
+    
+    .metric-card p {
+        font-size: 0.85rem;
+        margin: 0.3rem 0;
     }
     
     /* 页脚样式 */
     .footer {
         text-align: center;
-        padding: 2rem;
-        margin-top: 3rem;
-        color: #6c757d;
-        border-top: 1px solid #e9ecef;
+        padding: 2.5rem;
+        margin-top: auto;
+        margin-bottom: 0;
+        color: #5d4037;
+        background: rgba(255, 253, 245, 0.9);
+        backdrop-filter: blur(15px);
+        border-radius: 12px;
+        border: 1px solid rgba(139, 115, 85, 0.3);
+        border-top: 3px solid #8b7355;
+        font-family: 'SimSun', serif;
+        position: relative;
+        width: 100%;
+    }
+    
+    /* 页脚容器样式 */
+    .footer-container {
+        margin-top: auto;
+        padding-top: 2rem;
+    }
+
+    /* 标题样式 */
+    .cultural-title {
+        font-family: 'SimSun', serif;
+        color: #5d4037;
+        text-align: center;
+        margin-bottom: 0.5rem;
+        font-weight: bold;
+        text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
+    }
+
+    .cultural-subtitle {
+        font-family: 'SimSun', serif;
+        color: #8b7355;
+        text-align: center;
+        margin-bottom: 2rem;
+        font-size: 1.1rem;
+    }
+
+    /* 输入框样式 */
+    .stTextInput>div>div>input, .stSelectbox>div>div {
+        background: rgba(255, 253, 245, 0.9) !important;
+        border: 1px solid #8b7355 !important;
+        border-radius: 4px !important;
+        font-family: 'SimSun', serif !important;
+    }
+
+    /* 滑块样式 */
+    .stSlider>div>div>div {
+        background: #8b7355 !important;
+    }
+
+    /* 复选框样式 */
+    .stCheckbox>label {
+        font-family: 'SimSun', serif;
+        color: #5d4037;
     }
     
     /* 进度条样式 */
     .stProgress > div > div > div {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        background: linear-gradient(135deg, #8b7355 0%, #6d4c41 100%);
     }
     </style>
     """, unsafe_allow_html=True)
 
 
 def create_main_header():
-    """创建主标题"""
+    """创建传统文化风格的主标题"""
     st.markdown("""
     <div class="main-header">
-        <h1>🏛️ 石窟寺壁画病害AI识别工具</h1>
-        <div class="subtitle">多模态融合 · 智能诊断 · 虚拟修复 · 知识驱动</div>
+        <h1 class="cultural-title" style="font-size: 3.2rem; margin-bottom: 0.5rem;">
+            🏛️ 石窟寺壁画病害AI识别工具
+        </h1>
+        <p class="cultural-subtitle" style="font-size: 1.3rem;">
+            上海交通大学设计学院 · 文物修复研究团队
+        </p>
+        <div style="display: flex; justify-content: center; gap: 1.5rem; flex-wrap: wrap; margin-top: 1.5rem;">
+            <span style="background: rgba(139, 115, 85, 0.1); padding: 0.6rem 1.2rem; border-radius: 25px; color: #8b7355; border: 1px solid #8b7355;">
+                🎨 多模态融合
+            </span>
+            <span style="background: rgba(139, 115, 85, 0.1); padding: 0.6rem 1.2rem; border-radius: 25px; color: #8b7355; border: 1px solid #8b7355;">
+                🔍 智能诊断
+            </span>
+            <span style="background: rgba(139, 115, 85, 0.1); padding: 0.6rem 1.2rem; border-radius: 25px; color: #8b7355; border: 1px solid #8b7355;">
+                🖌️ 虚拟修复
+            </span>
+            <span style="background: rgba(139, 115, 85, 0.1); padding: 0.6rem 1.2rem; border-radius: 25px; color: #8b7355; border: 1px solid #8b7355;">
+                📚 知识驱动
+            </span>
+        </div>
     </div>
     """, unsafe_allow_html=True)
 
 
 def create_feature_highlights():
-    """创建功能特性展示"""
+    """创建传统文化风格的功能展示"""
     st.markdown("""
-    <div style='background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
-                padding: 2rem; 
-                border-radius: 15px; 
-                color: white; 
-                margin: 2rem 0;'>
-        <div style='display: grid; grid-template-columns: repeat(4, 1fr); gap: 1rem; text-align: center;'>
-            <div>
-                <h3>🎯 精准识别</h3>
-                <p>6大类病害智能检测</p>
-            </div>
-            <div>
-                <h3>🔬 多模态分析</h3>
-                <p>图像+3D+文本融合</p>
-            </div>
-            <div>
-                <h3>🎨 虚拟修复</h3>
-                <p>AI驱动的复原模拟</p>
-            </div>
-            <div>
-                <h3>📊 专业报告</h3>
-                <p>完整的分析报告</p>
+    <div class="main-container" style="margin: 1rem 0;">
+        <div class="card" style="padding: 0.8rem; margin: 0.5rem 0;">
+            <div class="card-header" style="font-size: 0.95rem; margin-bottom: 0.6rem;">🌟 核心功能</div>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 0.8rem;">
+                <div class="metric-card">
+                    <div style="font-size: 1.5rem; margin-bottom: 0.3rem;">🎯</div>
+                    <h4 style="font-size: 0.95rem; margin: 0.2rem 0;">精准识别</h4>
+                    <p style="font-size: 0.8rem; margin: 0.2rem 0;">6大类病害智能检测，准确率超95%</p>
+                </div>
+                <div class="metric-card">
+                    <div style="font-size: 1.5rem; margin-bottom: 0.3rem;">🔬</div>
+                    <h4 style="font-size: 0.95rem; margin: 0.2rem 0;">多模态分析</h4>
+                    <p style="font-size: 0.8rem; margin: 0.2rem 0;">图像+3D+文本融合分析技术</p>
+                </div>
+                <div class="metric-card">
+                    <div style="font-size: 1.5rem; margin-bottom: 0.3rem;">🎨</div>
+                    <h4 style="font-size: 0.95rem; margin: 0.2rem 0;">虚拟修复</h4>
+                    <p style="font-size: 0.8rem; margin: 0.2rem 0;">AI驱动的智能复原模拟系统</p>
+                </div>
+                <div class="metric-card">
+                    <div style="font-size: 1.5rem; margin-bottom: 0.3rem;">📊</div>
+                    <h4 style="font-size: 0.95rem; margin: 0.2rem 0;">专业报告</h4>
+                    <p style="font-size: 0.8rem; margin: 0.2rem 0;">完整的分析报告和修复建议</p>
+                </div>
             </div>
         </div>
     </div>
@@ -603,15 +896,20 @@ def create_feature_highlights():
 
 
 def create_footer():
-    """创建页脚"""
+    """创建传统文化风格的页脚"""
     current_year = datetime.now().year
     st.markdown(f"""
-    <div class="footer">
-        <h4>🏛️ 石窟寺壁画智能保护平台</h4>
-        <p>© {current_year} 上海交通大学设计学院文物修复团队 · AI+文物保护研究</p>
-        <p style="font-size: 0.9rem; color: #868e96;">
-            技术支持：深度学习 · 计算机视觉 · 多模态AI · 知识图谱
-        </p>
+    <div class="footer-container">
+        <div class="footer">
+            <h4 class="cultural-title">🏛️ 石窟寺壁画智能保护平台</h4>
+            <p>上海交通大学设计学院 · 文物修复研究团队 · AI+文物保护实验室</p>
+            <p style="font-size: 0.9rem; margin-top: 1rem; color: #8b7355;">
+                🎨 传承文明 · 🔍 科技护宝 · 🖌️ 智能修复
+            </p>
+            <div style="margin-top: 1.5rem; font-size: 0.8rem; color: #a1887f;">
+                © {current_year} 上海交通大学设计学院文物保护团队
+            </div>
+        </div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -3890,8 +4188,7 @@ def run_segmentation_model(image_bgr, model_path, input_size=512, class_ids=None
 # ---------------------------
 # UI and main logic
 # ---------------------------
-# 主标题
-st.markdown("<h1 style='text-align:center;color:#8B4513;margin-bottom:1rem;'>🏛️ 石窟寺壁画病害AI识别工具（升级版）</h1>", unsafe_allow_html=True)
+# 主标题已在create_main_header()中定义，此处不再重复
 
 # Sidebar controls
 with st.sidebar.expander("📂 项目调度中心", expanded=False):
@@ -3979,13 +4276,14 @@ else:
     st.sidebar.caption("当前标定：未标定")
 
 # Upload (支持历史对比：允许上传旧图像)
-# 页面装饰：动态背景与校徽角标
-try:
-    bg_imgs = get_background_images_b64()
-    inject_dynamic_background(bg_imgs, interval_ms=10000)
-    # 保留动态背景，不再注入固定浮动底栏
-except Exception:
-    pass
+# 页面装饰：使用文物图案背景（已在inject_custom_css中设置）
+# 注释掉动态背景，使用固定的文物图案背景样式
+# try:
+#     bg_imgs = get_background_images_b64()
+#     inject_dynamic_background(bg_imgs, interval_ms=10000)
+#     # 保留动态背景，不再注入固定浮动底栏
+# except Exception:
+#     pass
 # 使用改进的标签页样式
 if IMPROVED_UI_AVAILABLE:
     tabs = st.tabs(["🏛️ 二维壁画诊断", "📐 三维石窟监测（基础版）", "📖 文献资料识别（OCR）", "🔮 多模态融合诊断", "🧠 深度学习训练", "📚 知识库", "📋 案例库", "📱 移动端采集"])
@@ -4230,8 +4528,7 @@ if uploaded is not None and analyze_btn:
         </div>
         """
         st.markdown(legend_html, unsafe_allow_html=True)
-        # 色彩复原（基础）
-        render_color_restore_ui(img_rgb, default_open=False, key_suffix="color1")
+        # 色彩复原（基础）已移除，仅保留高级复原功能
 
         # ---------------------
         # Quantification & scoring
@@ -4412,9 +4709,6 @@ if uploaded is not None and analyze_btn:
         # ---------------------
         st.markdown("---")
         st.markdown("## 🎨 图像复原功能")
-        
-        # 基础复原功能
-        render_inpainting_ui(img_rgb, mask_crack, mask_peel, mask_disc, mask_stain, mask_salt, mask_bio, default_open=True, key_suffix="main")
         
         # 高级复原功能
         if ADVANCED_RESTORATION_AVAILABLE:
@@ -5734,8 +6028,7 @@ if st.session_state.get("proc") is not None and (uploaded is None or not analyze
     </div>
     """
     st.markdown(legend_html, unsafe_allow_html=True)
-    # 色彩复原（缓存图）
-    render_color_restore_ui(img_rgb, default_open=False, key_suffix="color_cached")
+    # 色彩复原（基础）已移除，仅保留高级复原功能
 
     total_pixels = h*w
     crack_area = int(np.sum(mask_crack>0)); peel_area = int(np.sum(mask_peel>0)); disc_area = int(np.sum(mask_disc>0))
@@ -5782,12 +6075,8 @@ if st.session_state.get("proc") is not None and (uploaded is None or not analyze
         st.write(f"- {r}")
 
     # ---------------------
-    # Global inpainting (works with cached results)
-    # ---------------------
-    render_inpainting_ui(img_rgb, mask_crack, mask_peel, mask_disc, mask_stain, mask_salt, mask_bio, default_open=True, key_suffix="cached")
-    
-    # ---------------------
     # Advanced restoration system (works with cached results)
+    # 基础复原功能已移除，仅保留高级复原功能
     # ---------------------
     if ADVANCED_RESTORATION_AVAILABLE:
         st.markdown("---")
